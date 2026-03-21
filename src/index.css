@@ -1,0 +1,264 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --mp-blue: #3483fa;
+  --mp-blue-dark: #2968c8;
+  --mp-yellow: #fff159;
+  --mp-bg: #f5f5f5;
+  --mp-text: #1f2937;
+  --mp-muted: #64748b;
+  --mp-border: #e5e7eb;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background: #f5f5f5;
+  color: var(--mp-text);
+  overflow-x: hidden;
+  font-size: 16px;
+}
+
+.app-container {
+  max-width: 520px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(255, 241, 89, 0.55), transparent 28%),
+    linear-gradient(180deg, #fff7b8 0px, #f5f5f5 130px);
+  position: relative;
+  overflow-x: hidden;
+}
+
+main {
+  padding-bottom: 112px;
+}
+
+.page-fade {
+  animation: pageFade 0.28s ease-out;
+}
+
+@keyframes pageFade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mp-card {
+  background: #ffffff;
+  border: 1px solid var(--mp-border);
+  border-radius: 28px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+}
+
+.mp-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #64748b;
+}
+
+.mp-input {
+  width: 100%;
+  border: 1px solid #d6dbe3;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 20px;
+  padding: 16px 18px;
+  outline: none;
+  transition: all 0.18s ease;
+  font-size: 16px;
+  min-height: 56px;
+}
+
+.mp-input::placeholder {
+  color: #94a3b8;
+}
+
+.mp-input:focus {
+  border-color: var(--mp-blue);
+  box-shadow: 0 0 0 4px rgba(52, 131, 250, 0.12);
+}
+
+.mp-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 20px;
+  background: var(--mp-blue);
+  color: white;
+  font-weight: 800;
+  padding: 16px 18px;
+  transition: all 0.18s ease;
+  box-shadow: 0 12px 26px rgba(52, 131, 250, 0.24);
+  font-size: 16px;
+}
+
+.mp-btn-primary:hover {
+  background: var(--mp-blue-dark);
+}
+
+.mp-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #374151;
+  font-weight: 800;
+  padding: 16px 18px;
+  transition: all 0.18s ease;
+  border: 1px solid var(--mp-border);
+  font-size: 16px;
+}
+
+.mp-btn-primary:active,
+.mp-btn-secondary:active,
+.btn-number:active {
+  transform: scale(0.985);
+}
+
+.video-container {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  overflow: hidden;
+  max-width: 100%;
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.video-container iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.swal2-popup {
+  border-radius: 28px !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18) !important;
+  font-size: 15px !important;
+}
+
+.swal2-title {
+  font-size: 26px !important;
+  font-weight: 800 !important;
+}
+
+.swal2-html-container {
+  font-size: 15px !important;
+  line-height: 1.8 !important;
+}
+
+.swal2-confirm,
+.swal2-cancel,
+.swal2-deny {
+  border-radius: 14px !important;
+  font-weight: 800 !important;
+  font-size: 15px !important;
+}
+
+.swal2-input {
+  width: calc(100% - 1.2em) !important;
+  border-radius: 18px !important;
+  border: 1px solid #d1d5db !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  margin: 10px auto !important;
+  min-height: 50px !important;
+  font-size: 15px !important;
+}
+
+.swal2-toast {
+  border: 1px solid #e5e7eb !important;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12) !important;
+}
+
+.react-joyride__tooltip button {
+  outline: none !important;
+}
+
+/* IMPORTANTE: durante el tour, el header deja de ser sticky */
+html[data-tour-active='1'] .app-sticky-header {
+  position: relative !important;
+  top: auto !important;
+  z-index: 5 !important;
+}
+
+/* y el contenido no queda tapado por el header */
+html[data-tour-active='1'] main {
+  padding-top: 0 !important;
+}
+
+/* ayuda a que los targets queden con aire cuando Joyride hace scroll */
+[data-tour] {
+  scroll-margin-top: 130px;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+/* ocultar barras extra durante el tour */
+html[data-tour-active='1'] .tour-hide-on-tour {
+  display: none !important;
+}
+
+/* el header principal deja de ser sticky durante el tour */
+html[data-tour-active='1'] .app-sticky-header {
+  position: relative !important;
+  top: auto !important;
+  z-index: 5 !important;
+}
+
+/* mejor separación para targets de tour */
+[data-tour] {
+  scroll-margin-top: 130px;
+}
+
+/* fecha/hora más prolijo */
+input[type='date'],
+input[type='time'] {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #fff;
+}
