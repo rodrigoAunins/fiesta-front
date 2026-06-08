@@ -13,13 +13,15 @@
     "axios": "^1.13.6",
     "canvas-confetti": "^1.9.4",
     "framer-motion": "^12.34.3",
+    "interactjs": "^1.10.27",
     "pdfjs-dist": "^5.5.207",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-joyride": "^2.9.3",
     "react-router-dom": "^7.13.1",
     "socket.io-client": "^4.8.3",
-    "sweetalert2": "^11.26.21"
+    "sweetalert2": "^11.26.21",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -60,7 +60,7 @@ export default function SuperAdminGate({ children }: SuperAdminGateProps) {
         description="Estamos validando tu sesión para abrir el panel maestro."
       >
         <div className="flex items-center gap-3 rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#3483fa]"></div>
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#fb7185]"></div>
           <div>
             <p className="text-[15px] font-black text-slate-900">Cargando permisos</p>
             <p className="text-[13px] text-slate-500">Un segundo y te dejamos pasar.</p>
@@ -88,7 +88,7 @@ export default function SuperAdminGate({ children }: SuperAdminGateProps) {
 
           <Link
             to="/login"
-            className="inline-flex w-full items-center justify-center rounded-[18px] bg-[#3483fa] px-4 py-3 text-[14px] font-black text-white shadow-[0_10px_20px_rgba(52,131,250,0.22)]"
+            className="inline-flex w-full items-center justify-center rounded-[18px] bg-[linear-gradient(135deg,#fb7185,#8b5cf6)] px-4 py-3 text-[14px] font-black text-white shadow-[0_10px_20px_rgba(236,72,153,0.22)]"
           >
             Ir a login
           </Link>
@@ -168,7 +168,7 @@ export default function SuperAdminGate({ children }: SuperAdminGateProps) {
           }}
         >
           <div className="rounded-[20px] border border-[#bfdbfe] bg-[#eff6ff] p-4">
-            <p className="text-[13px] font-black text-[#1d4ed8]">Cuenta habilitada</p>
+            <p className="text-[13px] font-black text-[#be185d]">Cuenta habilitada</p>
             <p className="mt-1 text-[13px] leading-6 text-slate-700">
               Entraste con <b>{user?.email}</b>. Solo falta validar el PIN.
             </p>
@@ -183,7 +183,7 @@ export default function SuperAdminGate({ children }: SuperAdminGateProps) {
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               placeholder="Ingresá tu PIN privado"
-              className="w-full rounded-[18px] border border-slate-300 bg-white px-4 py-3 text-[15px] font-semibold text-slate-900 outline-none focus:border-[#3483fa]"
+              className="w-full rounded-[18px] border border-slate-300 bg-white px-4 py-3 text-[15px] font-semibold text-slate-900 outline-none focus:border-[#fb7185]"
               autoFocus
             />
             {pinError ? (
@@ -193,7 +193,7 @@ export default function SuperAdminGate({ children }: SuperAdminGateProps) {
 
           <button
             type="submit"
-            className="inline-flex w-full items-center justify-center rounded-[18px] bg-[#3483fa] px-4 py-3 text-[14px] font-black text-white shadow-[0_10px_20px_rgba(52,131,250,0.22)]"
+            className="inline-flex w-full items-center justify-center rounded-[18px] bg-[linear-gradient(135deg,#fb7185,#8b5cf6)] px-4 py-3 text-[14px] font-black text-white shadow-[0_10px_20px_rgba(236,72,153,0.22)]"
           >
             Entrar al panel
           </button>

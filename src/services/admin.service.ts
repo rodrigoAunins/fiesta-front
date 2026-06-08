@@ -190,7 +190,7 @@ function buildMockOverview(range: AdminOverviewRange): AdminOverviewResponse {
           'Eventos Norte',
           'High Vibes',
           'Fundación Sur',
-          'Pase Libre Labs',
+          'Mi Fiesta Studio',
           'Río Producciones',
         ][index],
         status: index % 3 === 0 ? 'finished' : 'active',

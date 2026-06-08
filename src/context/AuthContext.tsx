@@ -11,7 +11,7 @@ import {
   persistStoredToken,
 } from '../services/api';
 
-export type AuthRole = 'creator' | 'seller' | 'door';
+export type AuthRole = 'master' | 'creator' | 'organizer' | 'guest' | 'seller' | 'door';
 
 export type AuthUser = {
   id: string;
@@ -55,6 +55,13 @@ function normalizeRole(rawRole: unknown): AuthRole {
     .toLowerCase();
 
   if (
+    role === 'master' ||
+    role === 'superadmin'
+  ) {
+    return 'master';
+  }
+
+  if (
     role === 'seller' ||
     role === 'rrpp' ||
     role === 'promoter' ||
@@ -62,6 +69,18 @@ function normalizeRole(rawRole: unknown): AuthRole {
     role === 'reseller'
   ) {
     return 'seller';
+  }
+
+  if (role === 'organizer') {
+    return 'organizer';
+  }
+
+  if (
+    role === 'guest' ||
+    role === 'final' ||
+    role === 'user'
+  ) {
+    return 'guest';
   }
 
   if (

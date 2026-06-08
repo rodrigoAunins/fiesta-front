@@ -11,7 +11,7 @@ El organizador confirma el pago desde la app.`;
 }
 
 export function getSellerShareTitle(raffleTitle?: string) {
-  return raffleTitle ? `Rifa: ${raffleTitle}` : 'RifaLibre';
+  return raffleTitle ? `Evento: ${raffleTitle}` : 'Mi Fiesta';
 }
 
 export function getPublicRaffleShareText(link: string, raffleTitle?: string) {
@@ -27,10 +27,10 @@ El organizador valida la compra desde la app.`;
 }
 
 export function getAppShareText(link: string) {
-  return `Mirá esta app para crear y vender rifas de forma simple:
+  return `Mi Fiesta, empezá a armar tu evento:
 ${link}
 
-Ideal para organizar rifas, compartir links, recibir pagos por transferencia o efectivo y validar compradores desde un solo lugar.`;
+Ideal para organizar eventos, compartir links, recibir pagos por transferencia o efectivo y validar compradores desde un solo lugar.`;
 }
 
 export function getWhatsAppSellerText(link: string, raffleTitle?: string) {

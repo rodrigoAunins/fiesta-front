@@ -212,7 +212,7 @@ export default function DashboardSeller() {
       target: '[data-tour="seller-summary"]',
       title: 'Tu resumen de performance',
       content:
-        'Acá ves cuántas operaciones cerraste, cuáles siguen pendientes y cuánto llevás generado de comisión.',
+        'Acá ves cuántas operaciones cerraste y cuáles siguen pendientes.',
       placement: 'bottom',
       disableBeacon: true,
     },
@@ -514,19 +514,7 @@ export default function DashboardSeller() {
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
-            <div className="mp-card p-3">
-              <p className="text-[11px] font-bold text-slate-500">Ganado</p>
-              <p className="mt-1.5 text-[22px] font-black text-emerald-600">
-                ${Math.floor(earned).toLocaleString('es-AR')}
-              </p>
-            </div>
 
-            <div className="mp-card p-3">
-              <p className="text-[11px] font-bold text-slate-500">Comisión</p>
-              <p className="mt-1.5 text-[24px] font-black text-[#3483fa]">
-                {commissionPercent}%
-              </p>
-            </div>
 
             <div className="mp-card p-3">
               <p className="text-[11px] font-bold text-slate-500">Confirmadas</p>
@@ -563,12 +551,7 @@ export default function DashboardSeller() {
               </p>
             </div>
 
-            <div className="mp-card p-3">
-              <p className="text-[11px] font-bold text-slate-500">Volumen generado</p>
-              <p className="mt-1.5 text-[20px] font-black text-slate-900">
-                ${Math.floor(grossRevenue).toLocaleString('es-AR')}
-              </p>
-            </div>
+
           </div>
 
           <div className="mt-3 rounded-[16px] border border-slate-200 bg-white p-3 shadow-[0_6px_16px_rgba(0,0,0,0.04)]">
@@ -576,7 +559,7 @@ export default function DashboardSeller() {
               Importante
             </p>
             <p className="mt-1.5 text-[13px] leading-6 text-slate-700">
-              Tu link personal asocia automáticamente la compra o reserva a tu usuario RRPP. Si una operación sigue pendiente, puede no impactar todavía en tu comisión final.
+              Tu link personal asocia automáticamente la compra o reserva a tu usuario RRPP.
             </p>
           </div>
         </section>
@@ -663,7 +646,7 @@ export default function DashboardSeller() {
 
           <div className="rounded-[16px] border border-slate-200 bg-[#f8f8f8] p-3 mb-3">
             <p className="text-[13px] text-slate-700 leading-6">
-              Antes de compartir, abrí la vista pública y comprobá que el evento, el precio y el flujo de compra estén claros. Tu link de preview es:
+              Antes de compartir, abrí la vista pública y comprobá que el evento, la modalidad y el flujo de compra estén claros. Tu link de preview es:
             </p>
             <p className="mt-2 break-all text-[12px] font-bold text-[#3483fa]">
               {sellerViewLink}
@@ -739,12 +722,7 @@ export default function DashboardSeller() {
                     </div>
 
                     <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
-                      <div className="rounded-[12px] bg-white/80 p-2.5">
-                        <p className="text-slate-500">Monto</p>
-                        <p className="mt-1 font-black text-slate-900">
-                          ${toMoney(item?.totalAmount ?? item?.amount).toLocaleString('es-AR')}
-                        </p>
-                      </div>
+
 
                       <div className="rounded-[12px] bg-white/80 p-2.5">
                         <p className="text-slate-500">Método</p>
@@ -804,7 +782,7 @@ export default function DashboardSeller() {
                 'Ayuda',
                 `
                   <p>Tu objetivo acá es mover tu link personal de RRPP.</p>
-                  <p>Después revisás confirmadas, pendientes y comisión para saber cómo venís.</p>
+                  <p>Después revisás confirmadas y pendientes para saber cómo venís.</p>
                 `,
               ),
           },

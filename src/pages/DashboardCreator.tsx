@@ -647,7 +647,7 @@ function PurchaseQuickCard(props: {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
-            <div className="rounded-[14px] border border-black/5 bg-white/80 p-3">
+            <div className="rounded-[14px] border border-black/5 bg-white/80 p-3 col-span-2">
               <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
                 Reserva
               </p>
@@ -656,14 +656,7 @@ function PurchaseQuickCard(props: {
               </p>
             </div>
 
-            <div className="rounded-[14px] border border-black/5 bg-white/80 p-3">
-              <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
-                Monto
-              </p>
-              <p className="mt-1 font-black text-[#3483fa]">
-                ${toMoney(props.purchase?.totalAmount).toLocaleString('es-AR')}
-              </p>
-            </div>
+
           </div>
 
           <div className="mt-3 space-y-1 text-[12px] text-slate-600">
@@ -1107,9 +1100,7 @@ export default function DashboardCreator() {
       return {
         tone: 'rose' as const,
         title: 'Activá el panel para seguir sin límites',
-        description: `Con un solo pago de $${unlockPrice.toLocaleString(
-          'es-AR',
-        )} liberás el sistema y seguís vendiendo sin frenos.`,
+        description: `Liberá el sistema y seguís vendiendo sin frenos.`,
         actionLabel: 'Ver activación',
         action: () => scrollToSection('closing'),
       };
@@ -1429,7 +1420,7 @@ export default function DashboardCreator() {
       'Email',
       'Pases',
       'Cantidad',
-      'Monto',
+      'Valor',
       'RRPP',
       'Tiene comprobante',
       'Fecha Reserva',
@@ -2368,7 +2359,7 @@ export default function DashboardCreator() {
           <div style="text-align:left; line-height:1.7; color:#334155; font-size:14px;">
             <p>Antes de cerrar definitivamente el evento, necesitás activar el panel completo.</p>
             <p>Eso te libera el sistema y consolida toda la gestión final.</p>
-            <p style="margin-top:10px;"><b>Costo:</b> $${unlockPrice.toLocaleString(
+            <p style="margin-top:10px;"><b>Valor:</b> $${unlockPrice.toLocaleString(
               'es-AR',
             )}</p>
           </div>
@@ -2737,14 +2728,7 @@ export default function DashboardCreator() {
                       value={dashboard?.totalTickets || 0}
                       sublabel={capacityUnitLabel}
                     />
-                    <StatCard
-                      label="Recaudación estimada"
-                      value={`$${toMoney(
-                        financials.organizerNetCollected,
-                      ).toLocaleString('es-AR')}`}
-                      sublabel="Estimado según ventas confirmadas"
-                      tone="green"
-                    />
+
                     <StatCard
                       label="Estado del panel"
                       value={unlock.unlocked ? 'Al día' : 'Pendiente de activar'}
@@ -3750,16 +3734,7 @@ export default function DashboardCreator() {
                                     </p>
                                   </div>
 
-                                  {dashboard?.ticketPrice > 0 ? (
-                                    <div className="rounded-[14px] border border-slate-100 bg-slate-50 p-3">
-                                      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
-                                        Monto
-                                      </p>
-                                      <p className="mt-0.5 text-[15px] font-black text-[#3483fa]">
-                                        ${toMoney(purchase.totalAmount).toLocaleString('es-AR')}
-                                      </p>
-                                    </div>
-                                  ) : null}
+
 
                                   <div className="rounded-[14px] border border-slate-100 bg-slate-50 p-3">
                                     <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
@@ -3987,19 +3962,7 @@ export default function DashboardCreator() {
                         </p>
                       </div>
 
-                      {dashboard?.ticketPrice > 0 ? (
-                        <div>
-                          <p className="text-[12px] font-bold text-slate-500">
-                            Monto
-                          </p>
-                          <p className="mt-1 text-[20px] font-black text-[#3483fa]">
-                            $
-                            {toMoney(selectedPurchase.totalAmount).toLocaleString(
-                              'es-AR',
-                            )}
-                          </p>
-                        </div>
-                      ) : null}
+
 
                       <div>
                         <p className="text-[12px] font-bold text-slate-500">

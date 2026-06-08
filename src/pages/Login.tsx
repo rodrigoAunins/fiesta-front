@@ -29,8 +29,8 @@ export default function Login() {
         password: form.password,
       });
 
-      login(data.user, data.token);
-      navigate('/');
+      login(data.user, data.access_token || data.token);
+      navigate(data?.user?.role === 'master' ? '/master' : '/');
     } catch (err: any) {
       setError(
         err?.response?.data?.message || 'No se pudo iniciar sesión',
@@ -72,12 +72,12 @@ export default function Login() {
             <label className="block">
               <span className="mb-1.5 block text-sm font-bold text-slate-700">Correo electrónico</span>
               <input
-                type="email"
+                type="text"
                 autoComplete="email"
                 value={form.email}
                 onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-[#3483fa]"
-                placeholder="rodrigo@email.com"
+                placeholder="master o rodrigo@email.com"
               />
             </label>
 

@@ -49,6 +49,45 @@ main {
   padding-bottom: 112px;
 }
 
+main.event-os,
+main.event-onboarding {
+  padding-bottom: 0;
+}
+
+.event-os input,
+.event-os textarea,
+.event-os select,
+.event-onboarding input,
+.event-onboarding textarea,
+.event-onboarding select {
+  background: rgba(10, 8, 16, 0.72) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(244, 114, 182, 0.18) !important;
+  box-shadow: none;
+}
+
+.event-os input::placeholder,
+.event-os textarea::placeholder,
+.event-onboarding input::placeholder,
+.event-onboarding textarea::placeholder {
+  color: rgba(251, 207, 232, 0.5) !important;
+}
+
+.event-os input:focus,
+.event-os textarea:focus,
+.event-os select:focus,
+.event-onboarding input:focus,
+.event-onboarding textarea:focus,
+.event-onboarding select:focus {
+  border-color: rgba(244, 114, 182, 0.5) !important;
+  box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.12) !important;
+}
+
+.event-os input[type='date'],
+.event-onboarding input[type='date'] {
+  color-scheme: dark;
+}
+
 .page-fade {
   animation: pageFade 0.28s ease-out;
 }

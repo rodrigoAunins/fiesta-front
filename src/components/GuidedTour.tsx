@@ -115,13 +115,13 @@ function FixedTooltip({
     border: 0,
     outline: 0,
     cursor: 'pointer',
-    background: '#3483fa',
+    background: 'linear-gradient(135deg,#fb7185,#8b5cf6)',
     color: '#ffffff',
     borderRadius: 14,
     padding: '10px 16px',
     fontWeight: 800,
     fontSize: 14,
-    boxShadow: '0 10px 22px rgba(52,131,250,0.24)',
+    boxShadow: '0 10px 22px rgba(236,72,153,0.24)',
     transition: 'all .18s ease',
   };
 
@@ -473,7 +473,7 @@ export default function GuidedTour({
       styles={{
         options: {
           zIndex: 9999,
-          primaryColor: '#3483fa',
+          primaryColor: '#fb7185',
           backgroundColor: 'transparent',
           textColor: '#172033',
           arrowColor: 'transparent',

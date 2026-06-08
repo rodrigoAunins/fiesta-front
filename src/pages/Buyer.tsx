@@ -983,7 +983,7 @@ function buildPrintablePurchaseHtml(params: {
       <body>
         <div class="sheet">
           <div class="hero">
-            <span class="badge">Pase Libre</span>
+            <span class="badge">Mi Fiesta</span>
             <div class="title">${escapeHtml(eventData?.title || 'Evento')}</div>
             <div class="subtitle">${escapeHtml(title)} · ${escapeHtml(subtitle)}</div>
           </div>
@@ -1008,11 +1008,7 @@ function buildPrintablePurchaseHtml(params: {
                 <div class="muted">${escapeHtml(tableName || seatsText ? `${tableName}${tableName && seatsText ? ' · ' : ''}${seatsText}` : 'Acceso general')}</div>
               </div>
 
-              <div class="card">
-                <div class="eyebrow">Monto</div>
-                <div class="strong">$${toMoney(purchase?.totalAmount ?? purchase?.amount ?? 0).toLocaleString('es-AR')}</div>
-                <div class="muted">Código de referencia: ${escapeHtml(code)}</div>
-              </div>
+
             </div>
 
 <div class="status">
@@ -1058,7 +1054,7 @@ ${
             </div>
 
             <div class="footer-cta">
-              <div class="eyebrow" style="color:#93c5fd;">Creado con Pase Libre</div>
+              <div class="eyebrow" style="color:#f9a8d4;">Creado con Mi Fiesta</div>
               <div style="margin-top:8px; font-size:18px; font-weight:900;">Organizá tu propio evento y vendé accesos online</div>
               <div style="margin-top:6px; font-size:13px; line-height:1.7; color:#cbd5e1;">
                 Listas, validación de pagos, puerta, personal y seguimiento desde el celular.
@@ -1208,7 +1204,7 @@ export default function Buyer({ raffleIdFromUrl }: { raffleIdFromUrl?: string })
       target: '[data-tour="buyer-hero"]',
       title: 'Bienvenido al evento',
       content:
-        'Acá ves fecha, precio, modalidad y el estado general de ocupación.',
+        'Acá ves fecha, modalidad y el estado general de ocupación.',
       placement: 'bottom',
       disableBeacon: true,
     },
@@ -1732,9 +1728,9 @@ const openAccessSummaryModal = async (
               </div>
 
               <div style="border:1px solid #dbe2ea; background:#ffffff; border-radius:16px; padding:14px;">
-                <div style="font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:#64748b;">Monto a enviar</div>
-                <div style="margin-top:6px; font-size:20px; font-weight:800; color:#0f172a;">
-                  $${amount.toLocaleString('es-AR')}
+                <div style="font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:#64748b;">Información de acceso</div>
+                <div style="margin-top:6px; font-size:14px; color:#0f172a;">
+                  Consultá con el organizador para completar tu reserva.
                 </div>
               </div>
             </div>
@@ -1799,7 +1795,7 @@ const openAccessSummaryModal = async (
               </div>
 
               <div style="margin-top:10px; font-size:12px; line-height:1.7; color:#64748b;">
-                <strong>💡 Tip rápido:</strong> asegurate de que se lea bien el monto, la fecha y el destino. Así te validan más rápido.
+                <strong>💡 Tip rápido:</strong> asegurate de que se lea bien el valor, la fecha y el destino. Así te validan más rápido.
               </div>
             </div>
           </div>
@@ -2112,7 +2108,7 @@ const openAccessSummaryModal = async (
       <>
         <main className="page-fade px-3 pt-1">
           <AppHeader
-            title="Pase Libre"
+            title="Mi Fiesta"
             subtitle="Obteniendo la información..."
             showBack
             onBack={() => window.history.back()}
@@ -2425,7 +2421,7 @@ const openAccessSummaryModal = async (
               <div className="grid grid-cols-1 gap-4 lg:gap-5 sm:grid-cols-2">
                 <div data-tour="buyer-payment-info" className="mp-card p-4 lg:p-6 lg:rounded-[2rem]">
                   <p className="text-[11px] lg:text-[12px] font-black uppercase tracking-[0.16em] text-slate-500">
-                    Valor y pago
+                    Información de acceso
                   </p>
                   <p className="mt-2 text-[30px] lg:text-[36px] font-black text-slate-900 leading-none">
                     {eventData.ticketPrice > 0
@@ -3019,7 +3015,7 @@ const openAccessSummaryModal = async (
                               <i className="fas fa-gift text-emerald-600 text-xl"></i>
                               <div>
                                 <p className="text-[14px] font-black text-emerald-800">
-                                  Evento sin costo
+                                  Evento sin cargo
                                 </p>
                                 <p className="mt-0.5 text-[13px] text-emerald-700">
                                   Solo cargás los datos y asegurás tu lugar.
@@ -3128,7 +3124,7 @@ const openAccessSummaryModal = async (
                       <p>Podés revisar el resumen del evento y guardar cualquier constancia que hayas recibido.</p>
                     `
                     : `
-                      <p><b>1.</b> Revisá el precio, la fecha y cómo se paga.</p>
+                      <p><b>1.</b> Revisá la fecha, modalidad y cómo se confirma el lugar.</p>
                       <p><b>2.</b> Elegí cantidad o mesa, según el tipo de evento.</p>
                       <p><b>3.</b> Completá los datos de cada acceso.</p>
                       <p><b>4.</b> Guardá tu código y descargá tu constancia en PDF.</p>

@@ -1,4 +1,5 @@
 import {
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -7,7 +8,7 @@ import {
   type FormEvent,
 } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import api from '../api/axios';
 import AppHeader from '../components/AppHeader';
@@ -15,6 +16,7 @@ import GuidedTour from '../components/GuidedTour';
 import { openHelpModal, promptAppShare, runAfterTourAndIdle } from '../utils/ux';
 import type { Step } from 'react-joyride';
 import { RAFFLE_THEME_PRESETS, getThemeByName } from '../utils/raffleTheme';
+import { AuthContext } from '../context/AuthContext';
 
 function toNumber(value: unknown, fallback = 0) {
   const n = Number(value);
@@ -242,6 +244,8 @@ const PRICE_PRESETS = [2000, 3000, 5000, 8000, 10000, 15000];
 
 export default function CreateRaffle() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user } = useContext(AuthContext);
 
   const dateInputRef = useRef<HTMLInputElement | null>(null);
   const timeInputRef = useRef<HTMLInputElement | null>(null);
@@ -282,6 +286,14 @@ export default function CreateRaffle() {
   const [isCompressingCover, setIsCompressingCover] = useState(false);
   const [compressingPrizeId, setCompressingPrizeId] = useState<number | null>(null);
   const [publishPulse, setPublishPulse] = useState(false);
+  const [managedUsers, setManagedUsers] = useState<any[]>([]);
+  const [loadingManagedUsers, setLoadingManagedUsers] = useState(false);
+  const [finalUserId, setFinalUserId] = useState(
+    searchParams.get('finalUserId') || searchParams.get('assignedToId') || '',
+  );
+  const [organizerId, setOrganizerId] = useState(searchParams.get('organizerId') || '');
+
+  const canAssignEvent = user?.role === 'master' || user?.role === 'organizer' || user?.role === 'creator';
 
   useEffect(() => {
     const cleanup = runAfterTourAndIdle(
@@ -301,6 +313,49 @@ export default function CreateRaffle() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    setFinalUserId(searchParams.get('finalUserId') || searchParams.get('assignedToId') || '');
+    setOrganizerId(searchParams.get('organizerId') || '');
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!canAssignEvent) return;
+
+    let cancelled = false;
+
+    const loadManagedUsers = async () => {
+      try {
+        setLoadingManagedUsers(true);
+        const { data } = await api.get('/admin/users');
+        if (cancelled) return;
+
+        const nextUsers = Array.isArray(data)
+          ? data.filter((item) => {
+              const role = String(item?.role || '').toLowerCase();
+
+              if (user?.role === 'organizer' || user?.role === 'creator') {
+                return role === 'guest';
+              }
+
+              return ['creator', 'organizer', 'guest'].includes(role);
+            })
+          : [];
+
+        setManagedUsers(nextUsers);
+      } catch {
+        if (!cancelled) setManagedUsers([]);
+      } finally {
+        if (!cancelled) setLoadingManagedUsers(false);
+      }
+    };
+
+    loadManagedUsers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canAssignEvent, user?.role]);
 
   const combinedEventDate = useMemo(() => {
     if (!form.drawDateDate || !form.drawDateTime) return '';
@@ -392,6 +447,31 @@ export default function CreateRaffle() {
       form.chairsPerTable || 0,
     ).toLocaleString('es-AR')} sillas c/u`;
   }, [form.eventType, form.maxCapacity, form.tableCount, form.chairsPerTable]);
+
+  const finalUsers = useMemo(
+    () => managedUsers.filter((item) => String(item?.role || '').toLowerCase() === 'guest'),
+    [managedUsers],
+  );
+
+  const organizerUsers = useMemo(
+    () =>
+      managedUsers.filter((item) =>
+        ['creator', 'organizer'].includes(String(item?.role || '').toLowerCase()),
+      ),
+    [managedUsers],
+  );
+
+  const selectedFinalUser = useMemo(
+    () => finalUsers.find((item) => String(item?.id) === finalUserId) || null,
+    [finalUserId, finalUsers],
+  );
+
+  const selectedAssignee = selectedFinalUser;
+
+  const selectedOrganizer = useMemo(
+    () => organizerUsers.find((item) => String(item?.id) === organizerId) || null,
+    [organizerId, organizerUsers],
+  );
 
   const tourSteps = [
     {
@@ -537,7 +617,12 @@ export default function CreateRaffle() {
 
   const validateBeforeSubmit = () => {
     if (!form.title.trim()) {
-      Swal.fire('Aviso', 'Escribí un nombre claro para tu evento.', 'warning');
+      Swal.fire('Aviso', 'El nombre del evento es obligatorio', 'warning');
+      return false;
+    }
+
+    if (!finalUserId) {
+      Swal.fire('Aviso', 'Debes asociar un usuario final al evento', 'warning');
       return false;
     }
 
@@ -568,7 +653,7 @@ export default function CreateRaffle() {
       if (pricing.ticketPrice <= 0) {
         Swal.fire(
           'Aviso',
-          `Indicá el precio de la ${form.eventType === 'general' ? 'entrada' : 'mesa'}.`,
+          `Indicá el valor de la ${form.eventType === 'general' ? 'entrada' : 'mesa'}.`,
           'warning',
         );
         return false;
@@ -622,7 +707,7 @@ export default function CreateRaffle() {
           'Aviso',
           'Uno de los links de video no parece válido. Revisalo o dejalo vacío.',
           'warning',
-        );
+          );
         return false;
       }
     }
@@ -685,6 +770,9 @@ export default function CreateRaffle() {
         themeAccentColor: form.themeAccentColor,
         themeTextColor: form.themeTextColor,
         themeCardColor: form.themeCardColor,
+        finalUserId,
+        assignedToId: user?.role === 'master' && selectedOrganizer?.id ? selectedOrganizer.id : undefined,
+        organizerId: user?.role === 'master' && selectedOrganizer?.id ? selectedOrganizer.id : undefined,
 
         prizes: cleanedPrizes,
       };
@@ -712,7 +800,8 @@ export default function CreateRaffle() {
               form.eventType === 'general' ? 'lugares' : 'mesas'
             }</p>
             <p><b>Aforo estimado:</b> ${Number(estimatedAttendanceCapacity).toLocaleString('es-AR')} personas</p>
-            <p style="margin-top:8px; color:#059669; font-weight:bold;"><b>Valor:</b> ${form.isPaid ? `$${pricing.ticketPrice.toLocaleString('es-AR')}` : 'Gratis'}</p>
+            ${selectedFinalUser ? `<p><b>Usuario final:</b> ${selectedFinalUser.fullName || `${selectedFinalUser.firstName || ''} ${selectedFinalUser.lastName || ''}`.trim() || selectedFinalUser.email}</p>` : ''}
+            ${selectedOrganizer ? `<p><b>Organizador:</b> ${selectedOrganizer.fullName || `${selectedOrganizer.firstName || ''} ${selectedOrganizer.lastName || ''}`.trim() || selectedOrganizer.email}</p>` : ''}
           </div>
         `,
         confirmButtonText: 'Ir a mi panel',
@@ -735,9 +824,9 @@ export default function CreateRaffle() {
         <div className="mx-auto max-w-7xl w-full">
           <AppHeader
             title="Crear evento"
-            subtitle="Completá lo importante, mirá cómo queda y publicalo cuando esté listo."
+            subtitle={selectedAssignee ? `Este evento se va a crear para ${selectedAssignee.fullName || selectedAssignee.email}.` : 'Completá lo importante, mirá cómo queda y publicalo cuando esté listo.'}
             showBack
-            onBack={() => navigate('/')}
+            onBack={() => navigate(user?.role === 'master' || user?.role === 'organizer' ? '/master' : '/')}
             rightSlot={
               <button
                 type="button"
@@ -769,6 +858,82 @@ export default function CreateRaffle() {
             animate={{ opacity: 1, y: 0 }}
           >
             <div className="flex-1 w-full space-y-5 lg:space-y-6">
+              {canAssignEvent ? (
+                <section className="mp-card p-4 lg:rounded-[2rem] lg:p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#3483fa] lg:text-[12px]">
+                        Asociacion del evento
+                      </p>
+                      <h2 className="mt-1 text-[20px] font-black text-slate-900 lg:text-[24px]">
+                        Usuario final obligatorio
+                      </h2>
+                      <p className="mt-2 text-[14px] leading-6 text-slate-500">
+                        Elegi el usuario final dueno del evento. Si sos master, tambien podes asignar un organizador opcional.
+                      </p>
+                      {user?.role === 'master' ? (
+                        <div className="mt-4">
+                          <label className="mp-label lg:text-[13px]">Organizador opcional</label>
+                          <select
+                            value={organizerId}
+                            onChange={(e) => setOrganizerId(e.target.value)}
+                            className="mp-input !text-[14px] lg:!text-[15px] lg:py-3.5"
+                          >
+                            <option value="">Sin organizador asignado</option>
+                            {organizerUsers.map((organizerUser) => {
+                              const label =
+                                organizerUser.fullName ||
+                                `${organizerUser.firstName || ''} ${organizerUser.lastName || ''}`.trim() ||
+                                organizerUser.email;
+
+                              return (
+                                <option key={organizerUser.id} value={organizerUser.id}>
+                                  {label} Â· {organizerUser.email}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="min-w-[280px]">
+                      <select
+                        value={finalUserId}
+                        onChange={(e) => setFinalUserId(e.target.value)}
+                        className="mp-input !text-[14px] lg:!text-[15px] lg:py-3.5"
+                      >
+                        <option value="">Seleccionar usuario final obligatorio</option>
+                        {finalUsers.map((managedUser) => {
+                          const label =
+                            managedUser.fullName ||
+                            `${managedUser.firstName || ''} ${managedUser.lastName || ''}`.trim() ||
+                            managedUser.email;
+
+                          return (
+                            <option key={managedUser.id} value={managedUser.id}>
+                              {label} · {managedUser.email}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <p className="mt-2 text-[12px] text-slate-500">
+                        {loadingManagedUsers
+                          ? 'Cargando responsables disponibles...'
+                          : selectedAssignee
+                            ? `El evento quedará visible para ${selectedAssignee.fullName || selectedAssignee.email} y vos también lo vas a poder gestionar.`
+                            : 'Selecciona un usuario final. Es obligatorio para crear el evento.'}
+                      </p>
+                      {!finalUserId ? (
+                        <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-bold text-amber-700">
+                          Debes asociar un usuario final al evento.
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
               <section data-tour="create-basics" className="mp-card p-4 lg:rounded-[2rem] lg:p-6">
                 <div className="mb-4 flex items-center justify-between lg:mb-5">
                   <div>
@@ -1150,7 +1315,7 @@ export default function CreateRaffle() {
                         : 'border-slate-200 bg-slate-100 text-slate-600'
                     }`}
                   >
-                    {form.isPaid ? 'Con costo' : 'Gratis'}
+                    {form.isPaid ? 'De pago' : 'Gratis'}
                   </div>
                 </div>
 
@@ -1163,7 +1328,7 @@ export default function CreateRaffle() {
                       <p className="mt-0.5 text-[12px] text-slate-500 lg:text-[13px]">
                         {form.isPaid
                           ? 'Activado. Las reservas van a requerir pago.'
-                          : 'Desactivado. Va a funcionar como una lista o registro sin costo.'}
+                          : 'Desactivado. Va a funcionar como una lista o registro sin valor de acceso.'}
                       </p>
                     </div>
                     <button
@@ -1197,7 +1362,7 @@ export default function CreateRaffle() {
                       >
                         <div className="rounded-[18px] border border-emerald-200 bg-emerald-50/50 p-4 lg:rounded-[20px] lg:p-5">
                           <label className="mb-2 block text-[12px] font-black uppercase tracking-wide text-emerald-700 lg:text-[13px]">
-                            Precio de la {form.eventType === 'general' ? 'entrada' : 'mesa / box'}
+                            Valor de la {form.eventType === 'general' ? 'entrada' : 'mesa / box'}
                           </label>
 
                           <div className="relative flex items-center">
@@ -1732,19 +1897,7 @@ export default function CreateRaffle() {
                             </p>
                           </div>
 
-                          <div
-                            className="shrink-0 rounded-[12px] px-3 py-2 text-right shadow-sm"
-                            style={{ backgroundColor: `${themePreview.accentColor}22` }}
-                          >
-                            <p className="text-[9px] font-black uppercase tracking-wider opacity-70">
-                              Ingreso
-                            </p>
-                            <p className="mt-0.5 text-[15px] font-black">
-                              {form.isPaid
-                                ? `$${pricing.ticketPrice.toLocaleString('es-AR')}`
-                                : 'Gratis'}
-                            </p>
-                          </div>
+
                         </div>
 
                         <div className="grid grid-cols-2 gap-2">
@@ -1831,14 +1984,7 @@ export default function CreateRaffle() {
                       </b>
                     </div>
 
-                    {form.isPaid && pricing.estimatedGoal > 0 && (
-                      <div className="flex items-center justify-between gap-3 pt-1.5">
-                        <span className="font-bold text-emerald-700">Proyección bruta</span>
-                        <b className="text-[14px] font-black text-emerald-700">
-                          ${pricing.estimatedGoal.toLocaleString('es-AR')}
-                        </b>
-                      </div>
-                    )}
+
                   </div>
 
                   <button

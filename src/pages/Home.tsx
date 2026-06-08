@@ -9,6 +9,8 @@ import AppFooter from '../components/AppFooter';
 import { openHelpModal, promptAppShare } from '../utils/ux';
 
 const LANDING_PATH = import.meta.env.VITE_LANDING_PATH || '/';
+const WORKSPACE_STORAGE_KEY = 'rt_event_workspace_v2';
+const WORKSPACE_STORAGE_PREFIX = `${WORKSPACE_STORAGE_KEY}:`;
 
 const REVIEWABLE_PURCHASE_STATUSES = [
   'under_review',
@@ -42,6 +44,16 @@ function getPaymentMethodsLabel(event: any) {
 }
 
 function getEventCounts(event: any) {
+  if (event.isWorkspaceDraft && event._workspaceStats) {
+    const { sold, pending, total } = event._workspaceStats;
+    return {
+      sold,
+      pending,
+      total,
+      progress: total > 0 ? Math.round((sold / total) * 100) : 0,
+    };
+  }
+
   const tickets = Array.isArray(event?.tickets) ? event.tickets : [];
 
   const sold = tickets.filter((t: any) => t.status === 'sold').length;
@@ -58,6 +70,69 @@ function getEventCounts(event: any) {
     total,
     progress: total > 0 ? Math.round((sold / total) * 100) : 0,
   };
+}
+
+function getLocalWorkspaceEventsForUser(user: any) {
+  if (typeof window === 'undefined' || !user?.id) return [];
+
+  const userDraftPrefix = `${WORKSPACE_STORAGE_PREFIX}draft-${user.id}-`;
+  const results: any[] = [];
+
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key || !key.startsWith(userDraftPrefix)) continue;
+
+      const workspaceId = key.slice(WORKSPACE_STORAGE_PREFIX.length);
+      const raw = window.localStorage.getItem(key);
+      const state = raw ? JSON.parse(raw) : {};
+      const eventInfo = state?.eventInfo || {};
+      const guests = Array.isArray(state?.guests) ? state.guests : [];
+      const layout = Array.isArray(state?.layout) ? state.layout : [];
+      const capacity = guests.length || layout.length || 1;
+
+      const confirmedGuests = guests.filter((g: any) => g.status === 'confirmed' || g.status === 'present').length;
+      const pendingGuests = guests.filter((g: any) => g.status === 'pending').length;
+
+      results.push({
+        id: workspaceId,
+        title: eventInfo.name || 'Mi evento',
+        description: eventInfo.type || 'Evento asignado',
+        status: 'active',
+        drawDate: eventInfo.date || null,
+        eventEndAt: eventInfo.date || null,
+        venueName: eventInfo.venue || 'Lugar pendiente',
+        venueAddress: eventInfo.venue || '',
+        totalNumbers: capacity,
+        maxCapacity: capacity,
+        ticketPrice: 0,
+        allowTransfer: false,
+        allowCash: false,
+        tickets: [],
+        isWorkspaceDraft: true,
+        _workspaceStats: {
+          sold: confirmedGuests,
+          pending: pendingGuests,
+          total: capacity,
+        },
+      });
+    }
+  } catch (error) {
+    console.error('Error leyendo eventos locales del workspace:', error);
+  }
+
+  return results;
+}
+
+function mergeEvents(remoteEvents: any[], localEvents: any[]) {
+  const seen = new Set<string>();
+
+  return [...remoteEvents, ...localEvents].filter((event) => {
+    const id = String(event?.id || '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function getReviewableOperationsCount(purchases: any[] = []) {
@@ -81,8 +156,12 @@ function getCheckedInCount(purchases: any[] = []) {
 function getDashboardPath(role: string, eventId: string | number) {
   const normalizedRole = String(role || '').toLowerCase();
 
-  if (normalizedRole === 'creator') {
+  if (normalizedRole === 'creator' || normalizedRole === 'organizer') {
     return `/dashboard/${eventId}`;
+  }
+
+  if (normalizedRole === 'guest') {
+    return `/workspace/${eventId}`;
   }
 
   if (
@@ -163,7 +242,7 @@ function SummaryCard({
   label,
   value,
   hint,
-  valueClassName = 'text-slate-900',
+  valueClassName = 'text-white',
 }: {
   label: string;
   value: string | number;
@@ -171,15 +250,15 @@ function SummaryCard({
   valueClassName?: string;
 }) {
   return (
-    <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
+    <div className="rounded-[22px] border border-pink-300/12 bg-white/[0.045] p-4 shadow-[0_18px_34px_rgba(10,3,17,.18)] backdrop-blur">
+      <p className="text-[11px] font-black uppercase tracking-[0.14em] text-pink-100/50">
         {label}
       </p>
       <p className={`mt-2 text-[28px] font-black leading-none ${valueClassName}`}>
         {value}
       </p>
       {hint ? (
-        <p className="mt-2 text-[13px] leading-relaxed text-slate-500">{hint}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-pink-100/58">{hint}</p>
       ) : null}
     </div>
   );
@@ -188,36 +267,36 @@ function SummaryCard({
 function getPriorityToneClasses(tone: 'blue' | 'amber' | 'emerald' | 'rose') {
   if (tone === 'amber') {
     return {
-      wrapper: 'border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50',
-      icon: 'bg-amber-100 text-amber-600',
-      button: 'bg-amber-500 hover:bg-amber-600',
-      eyebrow: 'text-amber-700',
+      wrapper: 'border-amber-300/24 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,.22),transparent_34%),rgba(255,255,255,.055)]',
+      icon: 'bg-amber-300/16 text-amber-200',
+      button: 'bg-amber-500 hover:bg-amber-400',
+      eyebrow: 'text-amber-200',
     };
   }
 
   if (tone === 'emerald') {
     return {
-      wrapper: 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50',
-      icon: 'bg-emerald-100 text-emerald-600',
+      wrapper: 'border-emerald-300/24 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,.20),transparent_34%),rgba(255,255,255,.055)]',
+      icon: 'bg-emerald-300/16 text-emerald-200',
       button: 'bg-emerald-600 hover:bg-emerald-700',
-      eyebrow: 'text-emerald-700',
+      eyebrow: 'text-emerald-200',
     };
   }
 
   if (tone === 'rose') {
     return {
-      wrapper: 'border-rose-200 bg-gradient-to-r from-rose-50 to-red-50',
-      icon: 'bg-rose-100 text-rose-600',
-      button: 'bg-slate-900 hover:bg-slate-800',
-      eyebrow: 'text-rose-700',
+      wrapper: 'border-rose-300/24 bg-[radial-gradient(circle_at_top_left,rgba(244,63,94,.22),transparent_34%),rgba(255,255,255,.055)]',
+      icon: 'bg-rose-300/16 text-rose-200',
+      button: 'bg-rose-500 hover:bg-rose-400',
+      eyebrow: 'text-rose-200',
     };
   }
 
   return {
-    wrapper: 'border-sky-200 bg-gradient-to-r from-sky-50 to-blue-50',
-    icon: 'bg-sky-100 text-sky-600',
-    button: 'bg-[#3483fa] hover:bg-blue-600',
-    eyebrow: 'text-sky-700',
+    wrapper: 'border-pink-300/16 bg-[radial-gradient(circle_at_top_left,rgba(251,113,133,.18),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(139,92,246,.18),transparent_38%),rgba(255,255,255,.055)]',
+    icon: 'bg-pink-300/14 text-pink-100',
+    button: 'bg-[linear-gradient(135deg,#fb7185,#8b5cf6)] hover:brightness-110',
+    eyebrow: 'text-pink-200',
   };
 }
 
@@ -233,13 +312,14 @@ export default function Home() {
   const navigate = useNavigate();
 
   const role = String(user?.role || '').toLowerCase();
-  const isCreator = role === 'creator';
+  const isCreator = role === 'creator' || role === 'organizer';
+  const isGuestOwner = role === 'guest';
   const isDoorRole =
     role === 'door' ||
     role === 'door_staff' ||
     role === 'access' ||
     role === 'access_staff';
-  const isSeller = !isCreator && !isDoorRole;
+  const isSeller = role === 'seller';
 
   const firstName = useMemo(() => {
     const source =
@@ -294,19 +374,21 @@ export default function Home() {
       })
       .then((res) => {
         if (cancelled) return;
-        setEvents(Array.isArray(res.data) ? res.data : []);
+        const remoteEvents = Array.isArray(res.data) ? res.data : [];
+        const localEvents = (role === 'creator' || role === 'master') ? getLocalWorkspaceEventsForUser(user) : [];
+        setEvents(mergeEvents(remoteEvents, localEvents));
       })
       .catch((err) => {
         if (cancelled || isAbortLikeError(err)) return;
         console.error('Error cargando eventos:', err);
-        setEvents([]);
+        setEvents((role === 'creator' || role === 'master') ? getLocalWorkspaceEventsForUser(user) : []);
       });
 
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [user]);
+  }, [user, role]);
 
   useEffect(() => {
     if (!user || (!isCreator && !isDoorRole) || events.length === 0) {
@@ -453,6 +535,10 @@ export default function Home() {
     return events.reduce((acc, event) => acc + getEventCounts(event).pending, 0);
   }, [isSeller, events]);
 
+  const totalPendingCount = useMemo(() => {
+    return events.reduce((acc, event) => acc + getEventCounts(event).pending, 0);
+  }, [events]);
+
   const blockedEvents = eventsSorted.filter((e) => getUnlockState(e) === 'blocked');
   const warningEvents = eventsSorted.filter((e) => getUnlockState(e) === 'warning');
   const firstBlockedEvent = blockedEvents[0];
@@ -591,6 +677,32 @@ export default function Home() {
       }
     }
 
+    if (isGuestOwner) {
+      if (events.length === 0) {
+        return {
+          tone: 'blue' as const,
+          eyebrow: 'Esperando asignacion',
+          title: 'Todavia no tenes un evento cargado',
+          text: 'Cuando el master o tu organizador te asigne el evento, lo vas a ver aca con acceso al panel principal.',
+          cta: 'Entendido',
+          to: '',
+          icon: 'fa-calendar-day',
+        };
+      }
+
+      if (firstActiveEvent) {
+        return {
+          tone: 'emerald' as const,
+          eyebrow: 'Tu evento ya esta activo',
+          title: 'Segui todo desde un solo panel',
+          text: 'Entrá para ver el estado general del evento, ventas, fecha, capacidad y avances operativos.',
+          cta: 'Abrir mi evento',
+          to: getDashboardPath(role, firstActiveEvent.id),
+          icon: 'fa-stars',
+        };
+      }
+    }
+
     if (isSeller) {
       if (totalSellerPendingCount > 0 && firstActiveEvent) {
         return {
@@ -642,6 +754,7 @@ export default function Home() {
     };
   }, [
     isCreator,
+    isGuestOwner,
     isDoorRole,
     isSeller,
     totalReviewableCount,
@@ -665,8 +778,9 @@ export default function Home() {
 
   return (
     <>
-      <main className="page-fade min-h-screen bg-slate-50 px-3 pb-24 pt-2 md:px-6 lg:px-8">
-        <div className="mx-auto w-full max-w-7xl">
+      <main className="page-fade relative min-h-screen overflow-hidden bg-[#100311] px-3 pb-24 pt-2 text-white md:px-6 lg:px-8">
+        <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_right,rgba(168,85,247,.18),transparent_24%),radial-gradient(circle_at_top_left,rgba(251,113,133,.12),transparent_20%),linear-gradient(180deg,#100311,#170817_52%,#0b0211)]" />
+        <div className="relative mx-auto w-full max-w-7xl">
           <AppHeader
             title={`Hola, ${firstName}`}
             subtitle={
@@ -674,6 +788,8 @@ export default function Home() {
                 ? 'Resolvé lo urgente y mantené tus ventas en movimiento.'
                 : isDoorRole
                 ? 'Seleccioná tu evento y empezá a escanear entradas al toque.'
+                : isGuestOwner
+                ? 'Entrá a tu evento y seguí el trabajo del organizador desde un panel claro.'
                 : 'Buscá tu evento, compartí tu link y seguí sumando ventas.'
             }
             showBack={false}
@@ -689,7 +805,7 @@ export default function Home() {
                     `,
                   )
                 }
-                className="flex h-10 w-10 items-center justify-center rounded-[18px] border border-slate-200 bg-white text-[#3483fa] shadow-sm transition hover:bg-slate-50"
+                className="flex h-10 w-10 items-center justify-center rounded-[18px] border border-pink-300/14 bg-white/[0.06] text-pink-100 shadow-sm transition hover:bg-white/[0.1]"
               >
                 <i className="fas fa-headset text-[14px]"></i>
               </button>
@@ -700,7 +816,7 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`overflow-hidden rounded-[28px] border p-5 shadow-sm lg:p-6 ${priorityStyles.wrapper}`}
+              className={`overflow-hidden rounded-[28px] border p-5 shadow-[0_22px_50px_rgba(10,3,17,.24)] backdrop-blur lg:p-6 ${priorityStyles.wrapper}`}
             >
               <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 items-start gap-4">
@@ -716,17 +832,17 @@ export default function Home() {
                     >
                       {priorityCard.eyebrow}
                     </p>
-                    <h2 className="mt-1 text-[24px] font-black leading-[1.05] text-slate-900 lg:text-[28px]">
+                    <h2 className="mt-1 text-[24px] font-black leading-[1.05] text-white lg:text-[28px]">
                       {priorityCard.title}
                     </h2>
-                    <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-600">
+                    <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-pink-100/68">
                       {priorityCard.text}
                     </p>
 
                     {(isCreator || isDoorRole) &&
                       loadingOperationSummaries &&
                       !allOperationSummariesLoaded && (
-                        <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-[11px] font-bold text-slate-700">
+                        <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-pink-300/12 bg-black/18 px-3 py-1 text-[11px] font-bold text-pink-50">
                           <i className="fas fa-circle-notch fa-spin"></i>
                           Actualizando métricas...
                         </div>
@@ -769,7 +885,7 @@ export default function Home() {
               label="Activos"
               value={activeCount}
               hint="Están vendiendo ahora"
-              valueClassName="text-[#3483fa]"
+              valueClassName="text-sky-300"
             />
 
             <SummaryCard
@@ -778,17 +894,21 @@ export default function Home() {
                   ? 'Confirmados'
                   : isDoorRole
                   ? 'Listos para entrar'
+                  : isGuestOwner
+                  ? 'Confirmados'
                   : 'Ventas confirmadas'
               }
               value={isDoorRole ? totalDoorReadyCount : totalConfirmedCount}
               hint={
                 isDoorRole
                   ? 'Entradas válidas'
+                  : isGuestOwner
+                  ? 'Accesos emitidos'
                   : isSeller
                   ? 'Tu plata asegurada'
                   : 'Entradas ya pagadas'
               }
-              valueClassName={isDoorRole ? 'text-[#3483fa]' : 'text-emerald-700'}
+              valueClassName={isDoorRole ? 'text-sky-300' : 'text-emerald-300'}
             />
 
             <SummaryCard
@@ -797,6 +917,8 @@ export default function Home() {
                   ? 'Por revisar'
                   : isDoorRole
                   ? 'Ya adentro'
+                  : isGuestOwner
+                  ? 'Pendientes'
                   : 'Pendientes'
               }
               value={
@@ -804,6 +926,8 @@ export default function Home() {
                   ? totalReviewableCount
                   : isDoorRole
                   ? totalDoorCheckedInCount
+                  : isGuestOwner
+                  ? totalPendingCount
                   : totalSellerPendingCount
               }
               hint={
@@ -811,10 +935,12 @@ export default function Home() {
                   ? 'Pagos a confirmar'
                   : isDoorRole
                   ? 'Gente en el lugar'
+                  : isGuestOwner
+                  ? 'Reservas sin cerrar'
                   : 'Falta que paguen'
               }
               valueClassName={
-                isCreator || isSeller ? 'text-amber-600' : 'text-indigo-600'
+                isCreator || isSeller ? 'text-amber-300' : 'text-violet-300'
               }
             />
           </section>
@@ -822,10 +948,10 @@ export default function Home() {
           <section className="mt-8">
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-[22px] font-black text-slate-900">
-                  {isCreator ? 'Tus eventos' : 'Eventos asignados'}
+                <h2 className="text-[22px] font-black text-white">
+                  {isCreator ? 'Tus eventos' : isGuestOwner ? 'Tus celebraciones' : 'Eventos asignados'}
                 </h2>
-                <p className="mt-1 text-[14px] text-slate-500">
+                <p className="mt-1 text-[14px] text-pink-100/58">
                   Elegí uno para ir directo a su panel.
                 </p>
               </div>
@@ -833,7 +959,7 @@ export default function Home() {
               {isCreator && (
                 <Link
                   to="/create"
-                  className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[#3483fa] px-4 py-3 text-[14px] font-black text-white shadow-sm transition hover:bg-blue-600"
+                  className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[linear-gradient(135deg,#fb7185,#8b5cf6)] px-4 py-3 text-[14px] font-black text-white shadow-[0_18px_32px_rgba(236,72,153,.2)] transition hover:brightness-110"
                 >
                   <i className="fas fa-plus"></i>
                   Crear nuevo evento
@@ -842,8 +968,8 @@ export default function Home() {
             </div>
 
             {events.length === 0 ? (
-              <div className="rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-sm lg:p-12">
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#eaf2ff] lg:h-20 lg:w-20">
+              <div className="rounded-[28px] border border-pink-300/12 bg-white/[0.045] p-8 text-center shadow-[0_22px_50px_rgba(10,3,17,.24)] backdrop-blur lg:p-12">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-pink-300/14 lg:h-20 lg:w-20">
                   <i
                     className={`fas ${
                       isCreator
@@ -851,26 +977,30 @@ export default function Home() {
                         : isDoorRole
                         ? 'fa-door-open'
                         : 'fa-user-group'
-                    } text-2xl text-[#3483fa] lg:text-3xl`}
+                    } text-2xl text-pink-200 lg:text-3xl`}
                   ></i>
                 </div>
 
-                <h3 className="mb-2 text-[22px] font-black text-slate-900 lg:text-[26px]">
+                <h3 className="mb-2 text-[22px] font-black text-white lg:text-[26px]">
                   {isCreator
                     ? 'Tu panel está esperando tu primer evento'
+                    : isGuestOwner
+                    ? 'Todavía no tenés un evento asignado'
                     : 'Todavía no te asignaron a ningún evento'}
                 </h3>
 
-                <p className="mx-auto max-w-md text-[15px] leading-relaxed text-slate-600">
+                <p className="mx-auto max-w-md text-[15px] leading-relaxed text-pink-100/64">
                   {isCreator
                     ? 'Crear un evento lleva menos de 2 minutos. Hacelo ahora y compartí tu link de ventas al instante.'
+                    : isGuestOwner
+                    ? 'Pedile al organizador o al master que te asigne el evento. Apenas lo hagan, te va a aparecer acá automáticamente.'
                     : 'Pedile al organizador del evento que te agregue. Apenas lo haga, te va a aparecer acá de forma automática.'}
                 </p>
 
                 {isCreator && (
                   <Link
                     to="/create"
-                    className="mt-6 inline-flex items-center justify-center gap-2 rounded-[18px] bg-[#3483fa] px-5 py-3 text-[14px] font-black text-white shadow-sm transition hover:bg-blue-600"
+                    className="mt-6 inline-flex items-center justify-center gap-2 rounded-[18px] bg-[linear-gradient(135deg,#fb7185,#8b5cf6)] px-5 py-3 text-[14px] font-black text-white shadow-[0_18px_32px_rgba(236,72,153,.2)] transition hover:brightness-110"
                   >
                     Crear mi primer evento
                     <i className="fas fa-arrow-right text-[12px]"></i>
@@ -914,20 +1044,20 @@ export default function Home() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: idx * 0.04 }}
-                      className={`rounded-[28px] border p-5 shadow-sm transition-all hover:-translate-y-1 hover:shadow-md lg:p-6 ${
+                      className={`rounded-[28px] border p-5 shadow-[0_22px_48px_rgba(10,3,17,.22)] backdrop-blur transition-all hover:-translate-y-1 hover:border-pink-300/24 lg:p-6 ${
                         active
-                          ? 'border-slate-200 bg-white'
-                          : 'border-slate-200 bg-slate-50 opacity-85'
+                          ? 'border-pink-300/12 bg-white/[0.045]'
+                          : 'border-pink-300/10 bg-white/[0.025] opacity-80'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                          <h3 className="truncate text-[20px] font-black leading-tight text-slate-900">
+                          <h3 className="truncate text-[20px] font-black leading-tight text-white">
                             {event.title}
                           </h3>
 
-                          <p className="mt-1.5 text-[13px] font-medium text-slate-500">
-                            <i className="far fa-calendar-alt mr-1.5 text-[#3483fa]"></i>
+                          <p className="mt-1.5 text-[13px] font-medium text-pink-100/58">
+                            <i className="far fa-calendar-alt mr-1.5 text-pink-300"></i>
                             {formatDateTime(event.drawDate || event.eventDate)}
                           </p>
                         </div>
@@ -936,8 +1066,8 @@ export default function Home() {
                           <span
                             className={`rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-wide ${
                               event.status === 'finished'
-                                ? 'bg-slate-200 text-slate-600'
-                                : 'bg-[#eaf2ff] text-[#3483fa]'
+                                ? 'bg-white/10 text-pink-100/58'
+                                : 'bg-pink-400/14 text-pink-100'
                             }`}
                           >
                             {event.status === 'finished' ? 'Finalizado' : 'Activo'}
@@ -947,72 +1077,72 @@ export default function Home() {
 
                       <div className="mt-4 flex flex-wrap gap-2">
                         {isCreator && summary.reviewable > 0 && (
-                          <span className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-700">
+                          <span className="rounded-full border border-amber-300/22 bg-amber-300/12 px-3 py-1.5 text-[11px] font-black text-amber-200">
                             {summary.reviewable} pagos por revisar
                           </span>
                         )}
 
                         {isDoorRole && summary.readyForDoor > 0 && (
-                          <span className="rounded-full border border-sky-200 bg-sky-100 px-3 py-1.5 text-[11px] font-black text-sky-700">
+                          <span className="rounded-full border border-sky-300/22 bg-sky-300/12 px-3 py-1.5 text-[11px] font-black text-sky-200">
                             {summary.readyForDoor} accesos listos
                           </span>
                         )}
 
                         {isSeller && pending > 0 && (
-                          <span className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-700">
+                          <span className="rounded-full border border-amber-300/22 bg-amber-300/12 px-3 py-1.5 text-[11px] font-black text-amber-200">
                             {pending} reservas en proceso
                           </span>
                         )}
 
                         {unlockState === 'blocked' && isCreator && active && (
-                          <span className="rounded-full border border-rose-200 bg-rose-100 px-3 py-1.5 text-[11px] font-black text-rose-700">
+                          <span className="rounded-full border border-rose-300/22 bg-rose-300/12 px-3 py-1.5 text-[11px] font-black text-rose-200">
                             <i className="fas fa-lock mr-1"></i>
                             Pausado (Límite alcanzado)
                           </span>
                         )}
                         
                         {unlockState === 'warning' && isCreator && active && (
-                          <span className="rounded-full border border-sky-200 bg-sky-100 px-3 py-1.5 text-[11px] font-black text-sky-700">
+                          <span className="rounded-full border border-sky-300/22 bg-sky-300/12 px-3 py-1.5 text-[11px] font-black text-sky-200">
                             <i className="fas fa-unlock mr-1"></i>
                             Versión Gratis
                           </span>
                         )}
                       </div>
 
-                      <div className="mt-4 rounded-[20px] border border-slate-100 bg-slate-50 p-4">
+                      <div className="mt-4 rounded-[20px] border border-pink-300/10 bg-black/18 p-4">
                         <div className="mb-2 flex items-center justify-between">
-                          <p className="text-[13px] font-bold text-slate-600">
+                          <p className="text-[13px] font-bold text-pink-100/62">
                             Ocupación
                           </p>
-                          <p className="text-[13px] font-black text-[#3483fa]">
+                          <p className="text-[13px] font-black text-pink-200">
                             {progress}%
                           </p>
                         </div>
 
-                        <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200">
+                        <div className="h-3 w-full overflow-hidden rounded-full bg-white/10">
                           <div
-                            className="h-full rounded-full bg-[#3483fa] transition-all"
+                            className="h-full rounded-full bg-[linear-gradient(90deg,#fb7185,#8b5cf6)] transition-all"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
 
                         <div className="mt-4 grid grid-cols-3 gap-3">
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-pink-100/46">
                               Confirmados
                             </p>
-                            <p className="mt-1 text-[19px] font-black text-slate-900">
+                            <p className="mt-1 text-[19px] font-black text-white">
                               {sold}
                             </p>
                           </div>
 
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-pink-100/46">
                               {secondMetricLabel}
                             </p>
                             <p
                               className={`mt-1 text-[19px] font-black ${
-                                isDoorRole ? 'text-[#3483fa]' : 'text-amber-600'
+                                isDoorRole ? 'text-sky-300' : 'text-amber-300'
                               }`}
                             >
                               {secondMetricValue}
@@ -1020,46 +1150,28 @@ export default function Home() {
                           </div>
 
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-pink-100/46">
                               Total
                             </p>
-                            <p className="mt-1 text-[19px] font-black text-slate-900">
+                            <p className="mt-1 text-[19px] font-black text-white">
                               {total || 0}
                             </p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="rounded-[18px] border border-slate-100 bg-white p-3">
-                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
-                            Cobros por
-                          </p>
-                          <p className="mt-1 truncate text-[14px] font-bold text-slate-900">
-                            {getPaymentMethodsLabel(event)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-[18px] border border-slate-100 bg-white p-3">
-                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
-                            Valor entrada
-                          </p>
-                          <p className="mt-1 text-[18px] font-black text-emerald-600">
-                            ${toMoney(event.ticketPrice).toLocaleString('es-AR')}
-                          </p>
-                        </div>
-                      </div>
-
                       <button
                         type="button"
                         onClick={() => navigate(eventPath)}
-                        className="mt-4 flex w-full items-center justify-between rounded-[18px] bg-slate-900 px-4 py-3.5 text-left text-white transition hover:bg-[#3483fa]"
+                        className="mt-4 flex w-full items-center justify-between rounded-[18px] bg-[linear-gradient(135deg,#fb7185,#8b5cf6)] px-4 py-3.5 text-left text-white shadow-[0_18px_32px_rgba(236,72,153,.18)] transition hover:brightness-110"
                       >
                         <span className="text-[14px] font-black">
                           {isCreator
                             ? 'Ir a mi panel'
                             : isDoorRole
                             ? 'Controlar puerta'
+                            : isGuestOwner
+                            ? 'Configurar mi evento'
                             : 'Ver mis ventas'}
                         </span>
                         <i className="fas fa-arrow-right text-[12px]"></i>
@@ -1135,7 +1247,9 @@ export default function Home() {
         />
       </div>
 
-      <AppFooter />
+      <div className="bg-[#0b0211] px-3 md:px-6 lg:px-8">
+        <AppFooter />
+      </div>
     </>
   );
 }
