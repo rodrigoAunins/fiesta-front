@@ -37,11 +37,13 @@ jobs:
           VITE_API_URL: https://fiesta-back.onrender.com
           VITE_API_PUBLIC_URL: https://fiesta-back.onrender.com
           VITE_SOCKET_URL: https://fiesta-back.onrender.com
-          VITE_FRONTEND_URL: https://rodrigoaunins.github.io/fiesta-front
-          VITE_PAGES_BASE: /fiesta-front/
+          VITE_FRONTEND_URL: https://mifiestaonline.com.ar
+          VITE_PAGES_BASE: /
 
       - name: Add SPA fallback
-        run: cp dist/index.html dist/404.html
+        run: |
+          cp dist/index.html dist/404.html
+          echo "mifiestaonline.com.ar" > dist/CNAME
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
