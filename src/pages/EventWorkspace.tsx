@@ -17,10 +17,13 @@ import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
 import { AuthContext } from '../context/AuthContext';
 import api from '../api/axios';
-import { listWorkspaceGuests, saveWorkspaceGuests } from '../services/invitation.service';
+import { listWorkspaceGuests, reviewWorkspaceGuest, saveWorkspaceGuests } from '../services/invitation.service';
 
 type GuestStatus = 'confirmed' | 'pending' | 'present' | 'absent';
 type GuestGender = 'female' | 'male' | 'other';
+type GuestAgeGroup = 'child' | 'adult' | 'senior';
+type GuestRegistrationSource = 'manual' | 'import' | 'public';
+type GuestReviewStatus = 'approved' | 'pending_review' | 'rejected';
 type ChecklistStatus = 'pending' | 'in_progress' | 'done';
 type ProviderStatus = 'active' | 'inactive';
 type LayoutElementType = 'roundTable' | 'squareTable' | 'rectTable' | 'vipTable' | 'danceFloor' | 'entrance' | 'stage' | 'bar' | 'bathroom';
@@ -32,13 +35,33 @@ type Guest = {
   status: GuestStatus;
   gender: GuestGender;
   food: string;
+  age?: number | null;
+  ageGroup: GuestAgeGroup;
   companions: number;
+  companionsData: GuestCompanion[];
   table: string;
   phone: string;
   email?: string;
   inviteCode: string;
   note?: string;
   side: 'left' | 'right';
+  registrationSource: GuestRegistrationSource;
+  reviewStatus: GuestReviewStatus;
+  reviewedAt?: string | null;
+  reviewedByUserId?: string | null;
+  rejectionReason?: string;
+};
+
+type GuestCompanion = {
+  id: string;
+  name: string;
+  status?: GuestStatus;
+  gender: GuestGender;
+  food: string;
+  age?: number | null;
+  ageGroup: GuestAgeGroup;
+  email?: string;
+  phone?: string;
 };
 
 type ChecklistItem = {
@@ -440,6 +463,12 @@ const GUEST_GENDER_OPTIONS: Array<{ value: GuestGender; label: string; icon: str
   { value: 'female', label: 'Mujer', icon: 'fa-venus' },
   { value: 'male', label: 'Hombre', icon: 'fa-mars' },
   { value: 'other', label: 'Otro', icon: 'fa-user' },
+];
+
+const GUEST_AGE_GROUP_OPTIONS: Array<{ value: GuestAgeGroup; label: string }> = [
+  { value: 'child', label: 'Niño' },
+  { value: 'adult', label: 'Adulto' },
+  { value: 'senior', label: 'Mayor' },
 ];
 
 const FONT_OPTIONS = [
@@ -910,6 +939,61 @@ function normalizeGuestGender(raw: unknown): GuestGender {
   return 'other';
 }
 
+function normalizeGuestAge(raw: unknown): number | null {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 130) return null;
+  return Math.round(value);
+}
+
+function normalizeGuestAgeGroup(raw: unknown): GuestAgeGroup {
+  const value = String(raw || '').trim().toLowerCase();
+  if (['child', 'niño', 'nino', 'menor'].includes(value)) return 'child';
+  if (['senior', 'mayor', 'adulto mayor'].includes(value)) return 'senior';
+  return 'adult';
+}
+
+function normalizeRegistrationSource(raw: unknown): GuestRegistrationSource {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'public' || value === 'import') return value;
+  return 'manual';
+}
+
+function normalizeReviewStatus(raw: unknown): GuestReviewStatus {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'pending_review' || value === 'pending-review') return 'pending_review';
+  if (value === 'rejected') return 'rejected';
+  return 'approved';
+}
+
+function normalizeCompanion(raw: Partial<GuestCompanion>, index: number): GuestCompanion {
+  const name = String(raw.name || `Acompañante ${index + 1}`).trim() || `Acompañante ${index + 1}`;
+
+  return {
+    id: String(raw.id || nextId('companion')),
+    name,
+    status: normalizeImportedGuestStatus(raw.status),
+    gender: normalizeGuestGender(raw.gender),
+    food: String(raw.food || 'Sin restriccion').trim() || 'Sin restriccion',
+    age: normalizeGuestAge(raw.age),
+    ageGroup: normalizeGuestAgeGroup(raw.ageGroup),
+    email: String(raw.email || '').trim() || undefined,
+    phone: String(raw.phone || '').trim() || undefined,
+  };
+}
+
+function normalizeCompanionsData(raw: Partial<Guest>): GuestCompanion[] {
+  const data = Array.isArray(raw.companionsData)
+    ? raw.companionsData
+        .filter((item) => String(item?.name || '').trim())
+        .map((item, index) => normalizeCompanion(item, index))
+    : [];
+
+  if (data.length) return data;
+
+  const count = clamp(Number(raw.companions ?? 0), 0, 20);
+  return Array.from({ length: count }, (_, index) => normalizeCompanion({ name: `Acompañante ${index + 1}` }, index));
+}
+
 function getGuestStatusLabel(status: GuestStatus) {
   if (status === 'confirmed') return 'Confirmado';
   if (status === 'present') return 'Presente';
@@ -921,6 +1005,18 @@ function getGuestGenderLabel(gender: GuestGender) {
   if (gender === 'female') return 'Mujer';
   if (gender === 'male') return 'Hombre';
   return 'Otro';
+}
+
+function getGuestAgeGroupLabel(ageGroup: GuestAgeGroup) {
+  if (ageGroup === 'child') return 'Niño';
+  if (ageGroup === 'senior') return 'Mayor';
+  return 'Adulto';
+}
+
+function getReviewStatusLabel(reviewStatus: GuestReviewStatus) {
+  if (reviewStatus === 'pending_review') return 'Revisión pendiente';
+  if (reviewStatus === 'rejected') return 'Rechazado';
+  return 'Aprobado';
 }
 
 function getGuestGenderIcon(gender: GuestGender) {
@@ -1219,24 +1315,33 @@ function getRsvpSummary(guests: Guest[]) {
 
 function normalizeGuest(raw: Partial<Guest>, index: number): Guest {
   const name = String(raw.name || `Invitado ${index + 1}`).trim();
+  const companionsData = normalizeCompanionsData(raw);
   return {
     id: String(raw.id || nextId('guest')),
     name,
     status: normalizeImportedGuestStatus(raw.status),
     gender: normalizeGuestGender(raw.gender),
     food: String(raw.food || 'Sin restriccion').trim() || 'Sin restriccion',
-    companions: clamp(Number(raw.companions ?? 0), 0, 8),
+    age: normalizeGuestAge(raw.age),
+    ageGroup: normalizeGuestAgeGroup(raw.ageGroup),
+    companions: companionsData.length,
+    companionsData,
     table: String(raw.table || 'Sin mesa').trim() || 'Sin mesa',
     phone: String(raw.phone || '-').trim() || '-',
     email: String(raw.email || '').trim() || undefined,
     inviteCode: String(raw.inviteCode || createInviteCode(name)).trim(),
     note: String(raw.note || '').trim() || undefined,
     side: raw.side === 'right' ? 'right' : 'left',
+    registrationSource: normalizeRegistrationSource(raw.registrationSource),
+    reviewStatus: normalizeReviewStatus(raw.reviewStatus),
+    reviewedAt: raw.reviewedAt || null,
+    reviewedByUserId: raw.reviewedByUserId || null,
+    rejectionReason: String(raw.rejectionReason || '').trim() || undefined,
   };
 }
 
 function buildDefaultWorkspaceState(): WorkspaceState {
-  const guestSeeds: Guest[] = [
+  const guestSeeds: Partial<Guest>[] = [
     {
       id: 'guest-1',
       name: 'Camila Torres',
@@ -1462,7 +1567,7 @@ function isTableLayoutElement(item: LayoutElement) {
 }
 
 function getGuestPartySize(guest: Guest) {
-  return 1 + Math.max(0, Number(guest.companions || 0));
+  return 1 + Math.max(0, Number(guest.companionsData?.length || guest.companions || 0));
 }
 
 function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
@@ -1983,6 +2088,7 @@ function GuestsPanel({
   const [linkFilter, setLinkFilter] = useState<'all' | 'with_link' | 'without_link'>('all');
   const [placementFilter, setPlacementFilter] = useState<'all' | 'assigned' | 'unassigned' | 'with_companions' | 'without_companions'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | GuestStatus>('all');
+  const [reviewFilter, setReviewFilter] = useState<'all' | GuestReviewStatus>('all');
   const [viewMode, setViewMode] = useState<'list' | 'alphabetic' | 'tables'>('list');
   const [sortBy, setSortBy] = useState<'name' | 'status' | 'table' | 'created'>('name');
   const [selectedGuestId, setSelectedGuestId] = useState<string>('');
@@ -2007,10 +2113,15 @@ function GuestsPanel({
       status: 'pending' as GuestStatus,
       gender: 'female' as GuestGender,
       food: 'Sin restriccion',
+      age: '' as number | '',
+      ageGroup: 'adult' as GuestAgeGroup,
       companions: 0,
+      companionsData: [] as GuestCompanion[],
       table: tableOptions[0] || 'Sin mesa',
       side: 'left' as Guest['side'],
       note: '',
+      reviewStatus: 'approved' as GuestReviewStatus,
+      registrationSource: 'manual' as GuestRegistrationSource,
     }),
     [tableOptions],
   );
@@ -2019,6 +2130,7 @@ function GuestsPanel({
     const normalized = query.trim().toLowerCase();
     const base = guests.filter((guest) => {
       if (statusFilter !== 'all' && guest.status !== statusFilter) return false;
+      if (reviewFilter !== 'all' && guest.reviewStatus !== reviewFilter) return false;
       if (genderFilter !== 'all' && guest.gender !== genderFilter) return false;
       if (foodFilter === 'special' && guest.food.toLowerCase() === 'sin restriccion') return false;
       if (foodFilter === 'none' && guest.food.toLowerCase() !== 'sin restriccion') return false;
@@ -2037,9 +2149,12 @@ function GuestsPanel({
         guest.phone,
         guest.table,
         guest.food,
+        getGuestAgeGroupLabel(guest.ageGroup),
+        guest.companionsData.map((item) => `${item.name} ${item.food} ${getGuestAgeGroupLabel(item.ageGroup)}`).join(' '),
         String(guest.companions),
         getGuestStatusLabel(guest.status),
         getGuestGenderLabel(guest.gender),
+        getReviewStatusLabel(guest.reviewStatus),
         getSideLabel(guest.side),
       ]
         .join(' ')
@@ -2067,14 +2182,15 @@ function GuestsPanel({
       }
       return a.name.localeCompare(b.name, 'es');
     });
-  }, [foodFilter, genderFilter, guests, linkFilter, placementFilter, query, sideFilter, sortBy, statusFilter, tableFilter]);
+  }, [foodFilter, genderFilter, guests, linkFilter, placementFilter, query, reviewFilter, sideFilter, sortBy, statusFilter, tableFilter]);
   const rsvpSummary = useMemo(() => getRsvpSummary(guests), [guests]);
   const specialMeals = useMemo(
     () => guests.filter((guest) => guest.food && guest.food.toLowerCase() !== 'sin restriccion').length,
     [guests],
   );
   const absentGuests = useMemo(() => guests.filter((guest) => guest.status === 'absent').length, [guests]);
-  const totalCompanions = useMemo(() => guests.reduce((acc, guest) => acc + Number(guest.companions || 0), 0), [guests]);
+  const totalCompanions = useMemo(() => guests.reduce((acc, guest) => acc + Number(guest.companionsData?.length || guest.companions || 0), 0), [guests]);
+  const pendingReviewGuests = useMemo(() => guests.filter((guest) => guest.reviewStatus === 'pending_review').length, [guests]);
   const selectedGuest = useMemo(() => guests.find((guest) => guest.id === selectedGuestId) || null, [guests, selectedGuestId]);
   const selectedGuests = useMemo(() => guests.filter((guest) => selectedGuestIds.includes(guest.id)), [guests, selectedGuestIds]);
   const occupiedSeats = useMemo(() => tableSummaries.reduce((acc, tableItem) => acc + tableItem.assignedSeats, 0), [tableSummaries]);
@@ -2084,6 +2200,7 @@ function GuestsPanel({
   const invitationsReady = useMemo(() => guests.filter((guest) => guest.inviteCode).length, [guests]);
   const activeFilterCount = [
     statusFilter !== 'all',
+    reviewFilter !== 'all',
     genderFilter !== 'all',
     foodFilter !== 'all',
     sideFilter !== 'all',
@@ -2141,6 +2258,33 @@ function GuestsPanel({
     setGuests((prev) => prev.map((guest) => (guest.id === id ? normalizeGuest({ ...guest, ...patch }, 0) : guest)));
   };
 
+  const resizeDraftCompanions = (nextCount: number) => {
+    setDraft((current) => {
+      const count = clamp(nextCount, 0, 20);
+      const currentCompanions = current.companionsData || [];
+      const nextCompanions =
+        count > currentCompanions.length
+          ? [
+              ...currentCompanions,
+              ...Array.from({ length: count - currentCompanions.length }, (_, index) =>
+                normalizeCompanion({ name: `Acompañante ${currentCompanions.length + index + 1}` }, currentCompanions.length + index),
+              ),
+            ]
+          : currentCompanions.slice(0, count);
+
+      return { ...current, companions: count, companionsData: nextCompanions };
+    });
+  };
+
+  const updateDraftCompanion = (id: string, patch: Partial<GuestCompanion>) => {
+    setDraft((current) => ({
+      ...current,
+      companionsData: (current.companionsData || []).map((item, index) =>
+        item.id === id ? normalizeCompanion({ ...item, ...patch }, index) : item,
+      ),
+    }));
+  };
+
   const cycleStatus = (id: string) => {
     const order: GuestStatus[] = ['pending', 'confirmed', 'present', 'absent'];
     setGuests((prev) =>
@@ -2161,25 +2305,37 @@ function GuestsPanel({
       const workbook = XLSX.read(buffer, { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      let skippedRows = 0;
 
       const imported = rows
         .map((row, index) => {
           const nameValue = row.nombre || row.name || row.invitado || row.guest;
-          if (!String(nameValue || '').trim()) return null;
+          const phoneValue = row.telefono || row.phone || row.celular;
+          const emailValue = row.email || row.mail;
+          if (!String(nameValue || '').trim() || !String(phoneValue || '').trim() || !String(emailValue || '').trim()) {
+            skippedRows += 1;
+            return null;
+          }
+
+          const companionCount = clamp(Number(row.acompanantes || row.acompañantes || row.acompanantes_opcional || row.companions || row.extra || 0), 0, 20);
 
           return normalizeGuest(
             {
               id: nextId('guest'),
               name: String(nameValue),
-              phone: String(row.telefono || row.phone || row.celular || '-'),
-              email: String(row.email || row.mail || ''),
-              gender: normalizeGuestGender(row.genero || row.gender || row.sexo),
-              table: String(row.mesa || row.table || 'Sin mesa'),
-              food: String(row.comida || row.food || row.restriccion || 'Sin restriccion'),
-              companions: Number(row.acompanantes || row.acompañantes || row.companions || row.extra || 0),
-              status: normalizeImportedGuestStatus(row.estado || row.status || row.rsvp),
+              phone: String(phoneValue),
+              email: String(emailValue),
+              gender: normalizeGuestGender(row.genero || row.genero_opcional || row.gender || row.sexo),
+              age: normalizeGuestAge(row.edad || row.edad_opcional || row.age),
+              ageGroup: normalizeGuestAgeGroup(row.grupoEdad || row.grupo_edad || row.grupo_edad_opcional || row.ageGroup || row.tipoEdad),
+              table: String(row.mesa || row.mesa_opcional || row.table || 'Sin mesa'),
+              food: String(row.comida || row.comida_opcional || row.food || row.restriccion || 'Sin restriccion'),
+              companions: companionCount,
+              status: normalizeImportedGuestStatus(row.estado || row.estado_opcional || row.status || row.rsvp),
               inviteCode: createInviteCode(`${nameValue}-${index}`),
               side: index % 2 === 0 ? 'left' : 'right',
+              registrationSource: 'import',
+              reviewStatus: 'approved',
             },
             index,
           );
@@ -2192,7 +2348,7 @@ function GuestsPanel({
       }
 
       setGuests((prev) => [...imported, ...prev]);
-      toast(`${imported.length} invitados importados`);
+      toast(`${imported.length} invitados importados${skippedRows ? `, ${skippedRows} filas omitidas` : ''}`);
     } catch {
       toast('No pudimos leer el archivo de invitados', 'warning');
     } finally {
@@ -2207,21 +2363,25 @@ function GuestsPanel({
         nombre: 'Ana Perez',
         telefono: '+5491112345678',
         email: 'ana@example.com',
-        genero: 'female',
-        mesa: 'Mesa 4',
-        comida: 'Vegetariana',
-        acompanantes: 2,
-        estado: 'pending',
+        genero_opcional: 'female',
+        edad_opcional: 32,
+        grupo_edad_opcional: 'adult',
+        mesa_opcional: 'Mesa 4',
+        comida_opcional: 'Vegetariana',
+        acompanantes_opcional: 2,
+        estado_opcional: 'pending',
       },
       {
         nombre: 'Juan Gomez',
         telefono: '+5491199991111',
         email: 'juan@example.com',
-        genero: 'male',
-        mesa: 'Mesa 7',
-        comida: 'Sin restriccion',
-        acompanantes: 0,
-        estado: 'confirmed',
+        genero_opcional: 'male',
+        edad_opcional: '',
+        grupo_edad_opcional: 'adult',
+        mesa_opcional: '',
+        comida_opcional: '',
+        acompanantes_opcional: 0,
+        estado_opcional: '',
       },
     ]);
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Invitados');
@@ -2241,10 +2401,15 @@ function GuestsPanel({
         telefono: guest.phone,
         email: guest.email || '',
         genero: guest.gender,
+        edad: guest.age ?? '',
+        grupo_edad: guest.ageGroup,
         mesa: guest.table,
         comida: guest.food,
         acompanantes: guest.companions,
+        acompanantes_detalle: guest.companionsData.map((item) => item.name).join(', '),
         estado: guest.status,
+        revision: guest.reviewStatus,
+        origen: guest.registrationSource,
         lado: guest.side,
       })),
     );
@@ -2277,10 +2442,15 @@ function GuestsPanel({
       status: guest.status,
       gender: guest.gender,
       food: guest.food,
+      age: guest.age ?? '',
+      ageGroup: guest.ageGroup,
       companions: guest.companions,
+      companionsData: guest.companionsData,
       table: guest.table,
       side: guest.side,
       note: guest.note || '',
+      reviewStatus: guest.reviewStatus,
+      registrationSource: guest.registrationSource,
     });
     setDrawerMode('edit');
   };
@@ -2299,10 +2469,15 @@ function GuestsPanel({
         status: draft.status,
         gender: draft.gender,
         food: draft.food.trim() || 'Sin restriccion',
-        companions: draft.companions,
+        age: normalizeGuestAge(draft.age),
+        ageGroup: draft.ageGroup,
+        companionsData: draft.companionsData,
+        companions: draft.companionsData.length,
         table: draft.table.trim() || tableOptions[0] || 'Sin mesa',
         side: draft.side,
         note: draft.note.trim() || undefined,
+        reviewStatus: draft.reviewStatus,
+        registrationSource: draft.registrationSource,
       });
       toast('Invitado actualizado');
       closeDrawer();
@@ -2320,10 +2495,15 @@ function GuestsPanel({
         gender: draft.gender,
         table: draft.table.trim() || tableOptions[0] || 'Sin mesa',
         food: draft.food.trim() || 'Sin restriccion',
-        companions: draft.companions,
+        age: normalizeGuestAge(draft.age),
+        ageGroup: draft.ageGroup,
+        companionsData: draft.companionsData,
+        companions: draft.companionsData.length,
         inviteCode: createInviteCode(`${draft.name}-${draft.phone || draft.email || newId}`),
         side: draft.side,
         note: draft.note.trim() || undefined,
+        reviewStatus: draft.reviewStatus,
+        registrationSource: draft.registrationSource,
       },
       guests.length,
     );
@@ -2358,6 +2538,47 @@ function GuestsPanel({
     setSelectedGuestIds((prev) => prev.filter((id) => id !== guest.id));
     if (selectedGuestId === guest.id) closeDrawer();
     toast('Invitado eliminado');
+  };
+
+  const reviewGuest = async (guest: Guest, reviewStatus: GuestReviewStatus) => {
+    if (!['approved', 'rejected'].includes(reviewStatus)) return;
+
+    const rejectionResult =
+      reviewStatus === 'rejected'
+        ? await Swal.fire({
+            title: 'Rechazar solicitud',
+            input: 'text',
+            inputPlaceholder: 'Motivo opcional',
+            showCancelButton: true,
+            confirmButtonText: 'Rechazar',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#dc2626',
+            background: '#fffafc',
+          })
+        : null;
+
+    if (rejectionResult?.isDismissed) return;
+    const rejectionReason = String(rejectionResult?.value || '');
+
+    const patch: Partial<Guest> = {
+      reviewStatus,
+      rejectionReason: reviewStatus === 'rejected' ? rejectionReason || undefined : undefined,
+      status: reviewStatus === 'rejected' ? 'absent' : guest.status,
+    };
+
+    updateGuest(guest.id, patch);
+
+    if (workspaceId && !String(workspaceId).startsWith('draft-')) {
+      try {
+        const saved = await reviewWorkspaceGuest(workspaceId, guest.id, reviewStatus as 'approved' | 'rejected', rejectionReason);
+        updateGuest(guest.id, saved as Guest);
+      } catch (error) {
+        console.error('Error reviewing guest:', error);
+        toast('No pudimos guardar la revision en backend', 'warning');
+      }
+    }
+
+    toast(reviewStatus === 'approved' ? 'Invitado aprobado' : 'Invitado rechazado');
   };
 
   const toggleGuestSelection = (guestId: string) => {
@@ -2447,6 +2668,7 @@ function GuestsPanel({
     setTableFilter('all');
     setLinkFilter('all');
     setPlacementFilter('all');
+    setReviewFilter('all');
     setSortBy('name');
   };
 
@@ -2503,7 +2725,10 @@ function GuestsPanel({
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">{guest.table === 'Sin mesa' ? 'Sin ubicación' : guest.table}</span>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{getSideLabel(guest.side)}</span>
                 {guest.companions > 0 ? <span className="rounded-full bg-[#eef6ff] px-3 py-1 text-[#2457a6]">+{guest.companions} acompañantes</span> : null}
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{getGuestAgeGroupLabel(guest.ageGroup)}{guest.age ? ` · ${guest.age}` : ''}</span>
                 {hasSpecialMeal ? <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">{guest.food}</span> : null}
+                {guest.reviewStatus !== 'approved' ? <span className={`rounded-full px-3 py-1 ${guest.reviewStatus === 'pending_review' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>{getReviewStatusLabel(guest.reviewStatus)}</span> : null}
+                {guest.registrationSource === 'public' ? <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">Auto registro</span> : null}
                 {guest.inviteCode ? <span className="rounded-full bg-[#f6f0ff] px-3 py-1 text-[#6c45b0]">Link listo</span> : null}
                 {guestTable?.overflow ? <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-700">Mesa excedida</span> : null}
                 {missingContact ? <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">Falta contacto</span> : null}
@@ -2513,6 +2738,16 @@ function GuestsPanel({
 
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-black text-slate-600">{partySize} lugar{partySize === 1 ? '' : 'es'}</span>
+            {guest.reviewStatus === 'pending_review' ? (
+              <>
+                <button type="button" onClick={(event) => { event.stopPropagation(); void reviewGuest(guest, 'approved'); }} className="inline-flex h-10 items-center justify-center rounded-[14px] border border-emerald-200 bg-emerald-50 px-3 text-sm font-black text-emerald-700">
+                  Aprobar
+                </button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); void reviewGuest(guest, 'rejected'); }} className="inline-flex h-10 items-center justify-center rounded-[14px] border border-rose-200 bg-rose-50 px-3 text-sm font-black text-rose-700">
+                  Rechazar
+                </button>
+              </>
+            ) : null}
             <button type="button" onClick={(event) => { event.stopPropagation(); cycleStatus(guest.id); }} className="inline-flex h-10 items-center justify-center rounded-[14px] border border-[#e3d8e0] bg-white px-3 text-sm font-black text-slate-700">
               <i className="fas fa-repeat"></i>
             </button>
@@ -2568,12 +2803,13 @@ function GuestsPanel({
 
         <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={importGuests} />
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           {[
             { label: 'Total invitados', value: String(guests.length), tone: 'text-slate-950', note: `${filteredGuests.length} visibles` },
             { label: 'Confirmados', value: String(rsvpSummary.confirmed), tone: 'text-emerald-700', note: `${rsvpSummary.pending} pendientes` },
             { label: 'Ausentes', value: String(absentGuests), tone: 'text-rose-700', note: `${totalCompanions} acompañantes` },
             { label: 'Capacidad', value: totalSeats > 0 ? `${occupiedSeats}/${totalSeats}` : 'Sin dato', tone: 'text-slate-950', note: totalSeats > 0 ? `${freeSeats} libres` : 'Cargala desde el plano' },
+            { label: 'Revisión', value: String(pendingReviewGuests), tone: 'text-amber-700', note: 'auto-registros pendientes' },
             { label: 'Invitaciones', value: String(invitationsReady), tone: 'text-[#6c45b0]', note: overflowTables > 0 ? `${overflowTables} mesas excedidas` : `${specialMeals} menús especiales` },
           ].map((item) => (
             <div key={item.label} className="rounded-[22px] border border-[#eadfe7] bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,.04)]">
@@ -2603,6 +2839,16 @@ function GuestsPanel({
               <option value="confirmed">Confirmados</option>
               <option value="present">Presentes</option>
               <option value="absent">Ausentes</option>
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Revisión</span>
+            <select value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value as 'all' | GuestReviewStatus)} className="w-full rounded-[18px] border border-[#e4d7df] bg-white px-4 py-3 text-sm font-black text-slate-700 outline-none">
+              <option value="all">Todos</option>
+              <option value="approved">Aprobados</option>
+              <option value="pending_review">Revisión pendiente</option>
+              <option value="rejected">Rechazados</option>
             </select>
           </label>
 
@@ -2886,11 +3132,30 @@ function GuestsPanel({
                         <p className="mt-1 text-sm text-slate-500">Cada invitado ocupa {1 + draft.companions} lugar{1 + draft.companions === 1 ? '' : 'es'} contando su grupo.</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button type="button" onClick={() => setDraft((current) => ({ ...current, companions: clamp(current.companions - 1, 0, 8) }))} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#e3d8e0] bg-white text-slate-700">-</button>
+                        <button type="button" onClick={() => resizeDraftCompanions(draft.companions - 1)} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#e3d8e0] bg-white text-slate-700">-</button>
                         <span className="min-w-[32px] text-center text-2xl font-black text-slate-950">{draft.companions}</span>
-                        <button type="button" onClick={() => setDraft((current) => ({ ...current, companions: clamp(current.companions + 1, 0, 8) }))} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#e3d8e0] bg-white text-slate-700">+</button>
+                        <button type="button" onClick={() => resizeDraftCompanions(draft.companions + 1)} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#e3d8e0] bg-white text-slate-700">+</button>
                       </div>
                     </div>
+                    {draft.companionsData.length ? (
+                      <div className="mt-4 grid gap-3">
+                        {draft.companionsData.map((companion) => (
+                          <div key={companion.id} className="grid gap-2 rounded-[16px] border border-[#eadfe7] bg-white p-3 md:grid-cols-2">
+                            <input value={companion.name} onChange={(event) => updateDraftCompanion(companion.id, { name: event.target.value })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none" placeholder="Nombre acompañante" />
+                            <input value={companion.email || ''} onChange={(event) => updateDraftCompanion(companion.id, { email: event.target.value })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none" placeholder="Email opcional" />
+                            <input value={companion.phone || ''} onChange={(event) => updateDraftCompanion(companion.id, { phone: event.target.value })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none" placeholder="Teléfono opcional" />
+                            <input type="number" min={0} max={130} value={companion.age ?? ''} onChange={(event) => updateDraftCompanion(companion.id, { age: normalizeGuestAge(event.target.value) })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none" placeholder="Edad" />
+                            <select value={companion.gender} onChange={(event) => updateDraftCompanion(companion.id, { gender: event.target.value as GuestGender })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none">
+                              {GUEST_GENDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                            <select value={companion.ageGroup} onChange={(event) => updateDraftCompanion(companion.id, { ageGroup: event.target.value as GuestAgeGroup })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none">
+                              {GUEST_AGE_GROUP_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                            <input value={companion.food} onChange={(event) => updateDraftCompanion(companion.id, { food: event.target.value })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none md:col-span-2" placeholder="Preferencia de comida" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="mt-3 rounded-[18px] border border-[#ece2e8] bg-[#fffafb] p-4 text-sm leading-6 text-slate-600">
                     {(() => {
@@ -2917,6 +3182,18 @@ function GuestsPanel({
                           </button>
                         ))}
                       </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Edad</span>
+                        <input type="number" min={0} max={130} value={draft.age} onChange={(event) => setDraft((current) => ({ ...current, age: event.target.value === '' ? '' : Number(event.target.value) }))} className="w-full rounded-[16px] border border-[#e4d7df] bg-[#fffafb] px-4 py-3 text-slate-900 outline-none" placeholder="Opcional" />
+                      </label>
+                      <label className="block">
+                        <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Grupo etario</span>
+                        <select value={draft.ageGroup} onChange={(event) => setDraft((current) => ({ ...current, ageGroup: event.target.value as GuestAgeGroup }))} className="w-full rounded-[16px] border border-[#e4d7df] bg-[#fffafb] px-4 py-3 text-sm font-black text-slate-700 outline-none">
+                          {GUEST_AGE_GROUP_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </label>
                     </div>
                     <div>
                       <p className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-slate-400">Alimentación especial</p>

@@ -9,13 +9,33 @@ export interface WorkspaceGuest {
   status: 'confirmed' | 'pending' | 'present' | 'absent';
   gender: 'female' | 'male' | 'other';
   food: string;
+  age?: number | null;
+  ageGroup: 'child' | 'adult' | 'senior';
   companions: number;
+  companionsData: WorkspaceCompanion[];
   table: string;
   phone: string;
   email?: string;
   inviteCode: string;
   note?: string;
   side: 'left' | 'right';
+  registrationSource: 'manual' | 'import' | 'public';
+  reviewStatus: 'approved' | 'pending_review' | 'rejected';
+  reviewedAt?: string | null;
+  reviewedByUserId?: string | null;
+  rejectionReason?: string;
+}
+
+export interface WorkspaceCompanion {
+  id: string;
+  name: string;
+  status?: 'confirmed' | 'pending' | 'present' | 'absent';
+  gender: 'female' | 'male' | 'other';
+  food: string;
+  age?: number | null;
+  ageGroup: 'child' | 'adult' | 'senior';
+  email?: string;
+  phone?: string;
 }
 
 export interface InvitationSummary {
@@ -115,9 +135,33 @@ export async function saveWorkspaceGuests(workspaceId: string, guests: Workspace
   return Array.isArray(res.data?.guests) ? res.data.guests : [];
 }
 
+export async function reviewWorkspaceGuest(
+  workspaceId: string,
+  guestId: string,
+  reviewStatus: 'approved' | 'rejected',
+  rejectionReason?: string,
+): Promise<WorkspaceGuest> {
+  const res = await api.post(`${BASE}/workspace/${workspaceId}/guests/${guestId}/review`, {
+    reviewStatus,
+    rejectionReason,
+  });
+  return res.data?.guest;
+}
+
 export async function submitPublicInvitationRsvp(
   slug: string,
-  payload: { guestToken?: string; name?: string; email?: string; phone?: string },
+  payload: {
+    guestToken?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    gender?: 'female' | 'male' | 'other';
+    food?: string;
+    age?: number | null;
+    ageGroup?: 'child' | 'adult' | 'senior';
+    confirmCompanions?: boolean;
+    companionsData?: WorkspaceCompanion[];
+  },
 ): Promise<WorkspaceGuest> {
   const res = await api.post(`${BASE}/public/${slug}/rsvp`, payload);
   return res.data?.guest;

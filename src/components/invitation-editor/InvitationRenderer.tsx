@@ -23,8 +23,23 @@ type Props = {
     name: string;
     email: string;
     phone: string;
+    gender?: 'female' | 'male' | 'other';
+    food?: string;
+    age?: string;
+    ageGroup?: 'child' | 'adult' | 'senior';
+    confirmCompanions?: boolean;
+    companionsData?: Array<{
+      id: string;
+      name: string;
+      gender: 'female' | 'male' | 'other';
+      food: string;
+      age?: number | null;
+      ageGroup: 'child' | 'adult' | 'senior';
+      email?: string;
+      phone?: string;
+    }>;
   };
-  onRsvpFormChange?: (patch: Partial<{ name: string; email: string; phone: string }>) => void;
+  onRsvpFormChange?: (patch: Partial<Props['rsvpForm']>) => void;
 };
 
 const BASE_WIDTH = 1080;
@@ -139,6 +154,39 @@ export default function InvitationRenderer({ design, sections: sectionsProp, wid
     if (content.action === 'calendar') {
       window.open(content.url || calendarUrl(sections), '_blank', 'noopener,noreferrer');
     }
+  };
+
+  const updateRsvpCompanion = (id: string, patch: Record<string, unknown>) => {
+    const companions = rsvpForm?.companionsData || [];
+    onRsvpFormChange?.({
+      companionsData: companions.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    });
+  };
+
+  const addRsvpCompanion = () => {
+    const companions = rsvpForm?.companionsData || [];
+    onRsvpFormChange?.({
+      confirmCompanions: true,
+      companionsData: [
+        ...companions,
+        {
+          id: `comp-${Date.now()}-${companions.length}`,
+          name: '',
+          gender: 'other',
+          food: 'Sin restriccion',
+          age: null,
+          ageGroup: 'adult',
+        },
+      ],
+    });
+  };
+
+  const removeRsvpCompanion = (id: string) => {
+    const companions = (rsvpForm?.companionsData || []).filter((item) => item.id !== id);
+    onRsvpFormChange?.({
+      companionsData: companions,
+      confirmCompanions: companions.length > 0 ? rsvpForm?.confirmCompanions : false,
+    });
   };
 
   const elementBase = (element: EditorElement): CSSProperties => ({
