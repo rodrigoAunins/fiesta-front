@@ -62,8 +62,20 @@ type GuestCompanion = {
   food: string;
   age?: number | null;
   ageGroup: GuestAgeGroup;
+  tableId?: string;
+  seatIndex?: number | null;
   email?: string;
   phone?: string;
+};
+
+type SeatOccupant = {
+  id: string;
+  guestId: string;
+  companionId?: string;
+  name: string;
+  tableId?: string;
+  seatIndex?: number | null;
+  kind: 'guest' | 'companion';
 };
 
 type ChecklistItem = {
@@ -985,6 +997,8 @@ function normalizeCompanion(raw: Partial<GuestCompanion>, index: number): GuestC
     food: String(raw.food || 'Sin restriccion').trim() || 'Sin restriccion',
     age: normalizeGuestAge(raw.age),
     ageGroup: normalizeGuestAgeGroup(raw.ageGroup),
+    tableId: String(raw.tableId || '').trim() || undefined,
+    seatIndex: normalizeSeatIndex(raw.seatIndex),
     email: String(raw.email || '').trim() || undefined,
     phone: String(raw.phone || '').trim() || undefined,
   };
@@ -1582,7 +1596,43 @@ function getGuestPartySize(guest: Guest) {
   return 1 + Math.max(0, Number(guest.companionsData?.length || guest.companions || 0));
 }
 
+function getGuestSeatOccupants(guest: Guest): SeatOccupant[] {
+  return [
+    {
+      id: `guest:${guest.id}`,
+      guestId: guest.id,
+      name: guest.name,
+      tableId: guest.tableId,
+      seatIndex: guest.seatIndex,
+      kind: 'guest',
+    },
+    ...(guest.companionsData || []).map((companion) => ({
+      id: `companion:${guest.id}:${companion.id}`,
+      guestId: guest.id,
+      companionId: companion.id,
+      name: companion.name,
+      tableId: companion.tableId,
+      seatIndex: companion.seatIndex,
+      kind: 'companion' as const,
+    })),
+  ];
+}
+
+function getSeatOccupants(guests: Guest[]): SeatOccupant[] {
+  return guests.flatMap(getGuestSeatOccupants);
+}
+
+function getSeatLocationLabel(layout: LayoutElement[], tableId?: string, seatIndex?: number | null, fallbackTable?: string) {
+  if (tableId && seatIndex !== null && seatIndex !== undefined) {
+    const table = layout.find((item) => item.id === tableId);
+    return `${table?.label || fallbackTable || 'Mesa'} / asiento ${Number(seatIndex) + 1}`;
+  }
+  if (fallbackTable && fallbackTable !== 'Sin mesa') return fallbackTable;
+  return 'Sin asiento';
+}
+
 function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
+  const occupants = getSeatOccupants(guests);
   const layoutTables = layout.filter(isTableLayoutElement).map((item) => ({
     id: item.id,
     label: item.label,
@@ -1602,10 +1652,15 @@ function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
 
   return [...layoutTables, ...missingGuestTables].map((table) => {
     const assignedGuests = guests.filter((guest) => guest.tableId === table.id || (!guest.tableId && guest.table === table.label));
-    const assignedSeats = assignedGuests.reduce((acc, guest) => acc + getGuestPartySize(guest), 0);
+    const visualSeats = occupants.filter((occupant) => occupant.tableId === table.id && occupant.seatIndex !== null && occupant.seatIndex !== undefined).length;
+    const legacySeats = assignedGuests
+      .filter((guest) => !guest.tableId)
+      .reduce((acc, guest) => acc + getGuestPartySize(guest), 0);
+    const assignedSeats = visualSeats + legacySeats;
     return {
       ...table,
       assignedGuests,
+      occupants: occupants.filter((occupant) => occupant.tableId === table.id),
       assignedSeats,
       freeSeats: Math.max(0, table.seats - assignedSeats),
       overflow: table.seats > 0 ? assignedSeats > table.seats : false,
@@ -1613,8 +1668,8 @@ function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
   });
 }
 
-function getSeatGuest(guests: Guest[], table: LayoutElement, seatIndex: number) {
-  return guests.find((guest) => guest.tableId === table.id && guest.seatIndex === seatIndex) || null;
+function getSeatOccupant(guests: Guest[], table: LayoutElement, seatIndex: number) {
+  return getSeatOccupants(guests).find((occupant) => occupant.tableId === table.id && occupant.seatIndex === seatIndex) || null;
 }
 
 function getSeatDots(item: LayoutElement) {
@@ -2116,6 +2171,8 @@ function GuestsPanel({
   const [bulkAction, setBulkAction] = useState('');
   const [bulkTable, setBulkTable] = useState('');
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit' | null>(null);
+  const [seatModalOpen, setSeatModalOpen] = useState(false);
+  const [seatModalPersonId, setSeatModalPersonId] = useState('guest');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const invitationUrl = useMemo(() => getInvitationUrl(workspaceId), [workspaceId]);
@@ -2275,6 +2332,98 @@ function GuestsPanel({
         .filter((tableItem) => tableItem.filteredGuests.length > 0 || tableItem.seats > 0),
     [filteredGuests, tableSummaries],
   );
+  const draftSeatPeople = useMemo(
+    () => [
+      {
+        id: 'guest',
+        name: draft.name.trim() || 'Titular',
+        kind: 'guest' as const,
+        tableId: draft.tableId,
+        seatIndex: draft.seatIndex,
+      },
+      ...draft.companionsData.map((companion, index) => ({
+        id: `companion:${companion.id}`,
+        companionId: companion.id,
+        name: companion.name.trim() || `Acompañante ${index + 1}`,
+        kind: 'companion' as const,
+        tableId: companion.tableId,
+        seatIndex: companion.seatIndex,
+      })),
+    ],
+    [draft.companionsData, draft.name, draft.seatIndex, draft.tableId],
+  );
+  const selectedDraftSeatPerson = useMemo(
+    () => draftSeatPeople.find((person) => person.id === seatModalPersonId) || draftSeatPeople[0],
+    [draftSeatPeople, seatModalPersonId],
+  );
+  const externalSeatOccupants = useMemo(() => {
+    const excludedGuestId = drawerMode === 'edit' ? selectedGuestId : '';
+    return getSeatOccupants(guests).filter((occupant) => occupant.guestId !== excludedGuestId);
+  }, [drawerMode, guests, selectedGuestId]);
+
+  const getDraftSeatLocation = (person: { tableId?: string; seatIndex?: number | null }) =>
+    getSeatLocationLabel(layout, person.tableId, person.seatIndex);
+
+  const getDraftSeatOccupant = (tableId: string, seatIndex: number) =>
+    draftSeatPeople.find((person) => person.tableId === tableId && person.seatIndex === seatIndex) || null;
+
+  const getExternalSeatOccupant = (tableId: string, seatIndex: number) =>
+    externalSeatOccupants.find((occupant) => occupant.tableId === tableId && occupant.seatIndex === seatIndex) || null;
+
+  const clearDraftSeatPerson = (personId: string) => {
+    setDraft((current) => {
+      if (personId === 'guest') {
+        return { ...current, table: 'Sin mesa', tableId: undefined, seatIndex: null };
+      }
+
+      const companionId = personId.replace('companion:', '');
+      return {
+        ...current,
+        companionsData: current.companionsData.map((companion) =>
+          companion.id === companionId ? { ...companion, tableId: undefined, seatIndex: null } : companion,
+        ),
+      };
+    });
+  };
+
+  const assignDraftSeatPerson = (personId: string, table: LayoutElement, seatIndex: number) => {
+    const externalOccupant = getExternalSeatOccupant(table.id, seatIndex);
+    if (externalOccupant) {
+      toast(`Ese asiento ya lo ocupa ${externalOccupant.name}`, 'warning');
+      return;
+    }
+
+    setDraft((current) => {
+      const clearSameSeatCompanions = current.companionsData.map((companion) => {
+        const sameSeat = companion.tableId === table.id && companion.seatIndex === seatIndex;
+        if (!sameSeat) return companion;
+        return { ...companion, tableId: undefined, seatIndex: null };
+      });
+
+      if (personId === 'guest') {
+        return {
+          ...current,
+          table: table.label,
+          tableId: table.id,
+          seatIndex,
+          companionsData: clearSameSeatCompanions,
+        };
+      }
+
+      const companionId = personId.replace('companion:', '');
+      const guestWasInTargetSeat = current.tableId === table.id && current.seatIndex === seatIndex;
+      return {
+        ...current,
+        table: guestWasInTargetSeat ? 'Sin mesa' : current.table,
+        tableId: guestWasInTargetSeat ? undefined : current.tableId,
+        seatIndex: guestWasInTargetSeat ? null : current.seatIndex,
+        companionsData: clearSameSeatCompanions.map((companion) =>
+          companion.id === companionId ? { ...companion, tableId: table.id, seatIndex } : companion,
+        ),
+      };
+    });
+    toast('Asiento asignado');
+  };
 
   const updateGuest = (id: string, patch: Partial<Guest>) => {
     const placementPatch =
@@ -2435,6 +2584,7 @@ function GuestsPanel({
         comida: guest.food,
         acompanantes: guest.companions,
         acompanantes_detalle: guest.companionsData.map((item) => item.name).join(', '),
+        acompanantes_ubicacion: guest.companionsData.map((item) => `${item.name}: ${getSeatLocationLabel(layout, item.tableId, item.seatIndex, guest.table)}`).join(' | '),
         estado: guest.status,
         revision: guest.reviewStatus,
         origen: guest.registrationSource,
@@ -3141,6 +3291,30 @@ function GuestsPanel({
                 <section className="rounded-[24px] border border-[#ece2e8] bg-white p-5">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Ubicación en el evento</p>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-[18px] border border-[#ece2e8] bg-[#fffafb] p-4 md:col-span-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Asientos del grupo</p>
+                          <p className="mt-1 text-sm text-slate-500">Ubica titular y acompanantes silla por silla en el plano.</p>
+                        </div>
+                        <button type="button" onClick={() => { setSeatModalPersonId('guest'); setSeatModalOpen(true); }} className="rounded-[14px] bg-slate-950 px-4 py-2 text-sm font-black text-white">
+                          Asignar en plano
+                        </button>
+                      </div>
+                      <div className="mt-4 grid gap-2">
+                        {draftSeatPeople.map((person) => (
+                          <div key={person.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-[#eadfe7] bg-white px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-black text-slate-900">{person.name}</p>
+                              <p className="text-xs font-semibold text-slate-500">{person.kind === 'guest' ? 'Titular' : 'Acompanante'}</p>
+                            </div>
+                            <span className={`max-w-[190px] truncate rounded-full px-3 py-1 text-xs font-black ${person.tableId ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {getDraftSeatLocation(person)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     <label className="block">
                       <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Mesa / fila</span>
                       <select value={draft.table} onChange={(event) => setDraft((current) => ({ ...current, table: event.target.value, tableId: undefined, seatIndex: null }))} className="w-full rounded-[16px] border border-[#e4d7df] bg-[#fffafb] px-4 py-3 text-sm font-black text-slate-700 outline-none">
@@ -3186,6 +3360,9 @@ function GuestsPanel({
                               {GUEST_AGE_GROUP_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                             </select>
                             <input value={companion.food} onChange={(event) => updateDraftCompanion(companion.id, { food: event.target.value })} className="rounded-[12px] border border-[#e4d7df] px-3 py-2 text-sm outline-none md:col-span-2" placeholder="Preferencia de comida" />
+                            <div className="rounded-[12px] bg-[#fff7fa] px-3 py-2 text-xs font-black text-slate-500 md:col-span-2">
+                              Ubicacion: {getSeatLocationLabel(layout, companion.tableId, companion.seatIndex, draft.table)}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -3258,6 +3435,139 @@ function GuestsPanel({
                 </div>
               </div>
             </motion.aside>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {drawerMode && seatModalOpen ? (
+          <motion.div className="fixed inset-0 z-50 bg-slate-950/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} transition={{ duration: 0.2 }} className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden rounded-[28px] bg-white text-slate-950 shadow-[0_28px_90px_rgba(0,0,0,.35)]">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Asignacion visual</p>
+                  <h2 className="mt-1 text-2xl font-black">Elegir asiento en el plano</h2>
+                  <p className="mt-1 text-sm text-slate-500">Selecciona una persona del grupo y toca una silla libre.</p>
+                </div>
+                <button type="button" onClick={() => setSeatModalOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700"><i className="fas fa-xmark" /></button>
+              </div>
+
+              <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[320px_1fr]">
+                <aside className="min-h-0 overflow-y-auto border-b border-slate-200 bg-slate-50 p-4 lg:border-b-0 lg:border-r">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Personas del grupo</p>
+                  <div className="mt-3 grid gap-2">
+                    {draftSeatPeople.map((person) => (
+                      <button
+                        key={person.id}
+                        type="button"
+                        onClick={() => setSeatModalPersonId(person.id)}
+                        className={`rounded-[16px] border px-4 py-3 text-left transition ${selectedDraftSeatPerson?.id === person.id ? 'border-slate-950 bg-white shadow-sm' : 'border-slate-200 bg-white/70 hover:bg-white'}`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-black text-slate-950">{person.name}</p>
+                            <p className="mt-1 text-xs font-semibold text-slate-500">{person.kind === 'guest' ? 'Titular' : 'Acompanante'}</p>
+                          </div>
+                          <span className={`h-3 w-3 rounded-full ${person.tableId ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                        </div>
+                        <p className="mt-2 truncate text-xs font-black text-slate-500">{getDraftSeatLocation(person)}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedDraftSeatPerson ? (
+                    <button type="button" onClick={() => clearDraftSeatPerson(selectedDraftSeatPerson.id)} className="mt-4 w-full rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
+                      Liberar asiento seleccionado
+                    </button>
+                  ) : null}
+                </aside>
+
+                <div className="min-h-0 overflow-auto bg-slate-100 p-5">
+                  <div className="mx-auto" style={{ width: BOARD_W, height: BOARD_H }}>
+                    <div
+                      className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-inner"
+                      style={{
+                        width: BOARD_W,
+                        height: BOARD_H,
+                        backgroundImage: SEATING_BOARD_THEMES[0].backgroundImage,
+                        backgroundSize: '100% 100%,28px 28px,28px 28px,100% 100%',
+                      }}
+                    >
+                      <div className="absolute inset-x-8 top-6 flex items-center justify-center gap-3">
+                        <span className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white">Toca una silla</span>
+                        <span className="rounded-full bg-white/92 px-4 py-2 text-xs font-black text-slate-700">{selectedDraftSeatPerson?.name || 'Selecciona persona'}</span>
+                      </div>
+
+                      {layout.map((item) => {
+                        const cfg = elementConfig[item.type];
+                        const seatDots = getSeatDots(item);
+                        return (
+                          <div
+                            key={item.id}
+                            className="absolute flex select-none items-center justify-center border text-center shadow-[0_20px_36px_rgba(15,23,42,.12)]"
+                            style={{
+                              left: item.x,
+                              top: item.y,
+                              width: item.w,
+                              height: item.h,
+                              borderRadius: cfg.borderRadius,
+                              background: cfg.gradient,
+                              color: cfg.textColor,
+                              borderColor: 'rgba(255,255,255,.4)',
+                            }}
+                          >
+                            {seatDots.map((dot, index) => {
+                              const draftOccupant = getDraftSeatOccupant(item.id, index);
+                              const externalOccupant = getExternalSeatOccupant(item.id, index);
+                              const occupant = draftOccupant || externalOccupant;
+                              const isSelectedPersonSeat = selectedDraftSeatPerson?.tableId === item.id && selectedDraftSeatPerson?.seatIndex === index;
+                              const labelTransform =
+                                dot.labelSide === 'top'
+                                  ? 'translate(-50%, calc(-100% - 9px))'
+                                  : dot.labelSide === 'bottom'
+                                    ? 'translate(-50%, 9px)'
+                                    : dot.labelSide === 'left'
+                                      ? 'translate(calc(-100% - 9px), -50%)'
+                                      : 'translate(9px, -50%)';
+
+                              return (
+                                <button
+                                  key={`${item.id}-${index}`}
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (!selectedDraftSeatPerson) return;
+                                    assignDraftSeatPerson(selectedDraftSeatPerson.id, item, index);
+                                  }}
+                                  disabled={Boolean(externalOccupant)}
+                                  className={`absolute flex h-7 w-7 items-center justify-center rounded-full border text-[9px] font-black shadow-sm transition ${externalOccupant ? 'cursor-not-allowed border-rose-200 bg-rose-100 text-rose-700' : occupant ? 'border-emerald-200 bg-emerald-500 text-white' : 'border-slate-200 bg-white text-slate-500 hover:bg-amber-50'} ${isSelectedPersonSeat ? 'ring-4 ring-amber-300' : ''}`}
+                                  style={{ left: dot.left, top: dot.top, transform: 'translate(-50%, -50%)' }}
+                                  title={occupant ? occupant.name : `Asiento ${index + 1}`}
+                                >
+                                  {occupant ? occupant.name.trim().slice(0, 1).toUpperCase() : index + 1}
+                                  {occupant ? (
+                                    <span
+                                      className={`pointer-events-none absolute z-20 max-w-[120px] truncate rounded-full border bg-white px-2 py-1 text-[9px] font-black leading-none shadow-sm ${externalOccupant ? 'border-rose-100 text-rose-700' : 'border-emerald-100 text-emerald-700'}`}
+                                      style={{ left: dot.labelSide === 'right' ? '100%' : dot.labelSide === 'left' ? '0%' : '50%', top: dot.labelSide === 'bottom' ? '100%' : dot.labelSide === 'top' ? '0%' : '50%', transform: labelTransform }}
+                                    >
+                                      {occupant.name}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                            <div className="pointer-events-none px-2">
+                              <i className={`fas ${cfg.icon} text-sm`} />
+                              <div className="mt-1 text-[11px] font-black leading-tight">{item.label}</div>
+                              {typeof item.seats === 'number' ? <div className="mt-1 text-[10px] font-black opacity-80">{item.seats} sillas</div> : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -4539,23 +4849,29 @@ function SeatingPanel({
     setGuests((prev) => {
       const next = prev.map((guest) => {
         const isCurrentSeat = guest.tableId === table.id && guest.seatIndex === seatIndex;
+        const companionsData = (guest.companionsData || []).map((companion) => {
+          const companionInCurrentSeat = companion.tableId === table.id && companion.seatIndex === seatIndex;
+          if (!guestId && companionInCurrentSeat) return { ...companion, tableId: undefined, seatIndex: null };
+          if (guestId && companionInCurrentSeat) return { ...companion, tableId: undefined, seatIndex: null };
+          return companion;
+        });
         if (!guestId && isCurrentSeat) {
-          return { ...guest, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
+          return { ...guest, companionsData, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
         }
 
         if (guest.id === guestId) {
-          return { ...guest, tableId: table.id, seatIndex, table: table.label };
+          return { ...guest, companionsData, tableId: table.id, seatIndex, table: table.label };
         }
 
         if (guestId && isCurrentSeat) {
-          return { ...guest, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
+          return { ...guest, companionsData, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
         }
 
         if (guestId && guest.id !== guestId && guest.tableId === table.id && guest.seatIndex === seatIndex) {
-          return { ...guest, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
+          return { ...guest, companionsData, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
         }
 
-        return guest;
+        return companionsData === guest.companionsData ? guest : { ...guest, companionsData };
       });
       return next;
     });
@@ -4735,8 +5051,8 @@ function SeatingPanel({
     toast('Preset de plano aplicado');
   };
 
-  const selectedSeatGuest =
-    selected && selectedSeatIndex !== null ? getSeatGuest(guests, selected, selectedSeatIndex) : null;
+  const selectedSeatOccupant =
+    selected && selectedSeatIndex !== null ? getSeatOccupant(guests, selected, selectedSeatIndex) : null;
   const assignableGuests = guests
     .filter((guest) => guest.reviewStatus !== 'rejected')
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -4867,7 +5183,7 @@ function SeatingPanel({
                       }}
                     >
                   {seatDots.map((dot, index) => {
-                    const seatGuest = getSeatGuest(guests, item, index);
+                    const seatOccupant = getSeatOccupant(guests, item, index);
                     const isSeatSelected = active && selectedSeatIndex === index;
                     const labelTransform =
                       dot.labelSide === 'top'
@@ -4892,18 +5208,21 @@ function SeatingPanel({
                           setSelectedId(item.id);
                           setSelectedSeatIndex(index);
                         }}
-                        className={`absolute h-5 w-5 rounded-full border shadow-sm transition ${seatGuest ? 'border-emerald-200 bg-emerald-500' : 'border-slate-200 bg-white'} ${isSeatSelected ? 'ring-4 ring-amber-300/70' : ''}`}
+                        className={`absolute h-6 w-6 rounded-full border text-[8px] font-black shadow-sm transition ${seatOccupant ? 'border-emerald-200 bg-emerald-500 text-white' : 'border-slate-200 bg-white text-slate-400'} ${isSeatSelected ? 'ring-4 ring-amber-300/70' : ''}`}
                         style={{ left: dot.left, top: dot.top, transform: 'translate(-50%, -50%)' }}
-                        title={seatGuest ? `${seatGuest.name} - asiento ${index + 1}` : `Asiento ${index + 1}`}
-                        aria-label={seatGuest ? `${seatGuest.name} en asiento ${index + 1}` : `Asignar asiento ${index + 1}`}
+                        title={seatOccupant ? `${seatOccupant.name} - asiento ${index + 1}` : `Asiento ${index + 1}`}
+                        aria-label={seatOccupant ? `${seatOccupant.name} en asiento ${index + 1}` : `Asignar asiento ${index + 1}`}
                       >
-                        {seatGuest ? (
+                        {seatOccupant ? (
+                          <>
+                            {seatOccupant.name.trim().slice(0, 1).toUpperCase()}
                           <span
-                            className="pointer-events-none absolute z-20 max-w-[96px] truncate rounded-full border border-emerald-100 bg-white px-2 py-1 text-[9px] font-black leading-none text-emerald-700 shadow-sm"
+                            className="pointer-events-none absolute z-20 max-w-[110px] truncate rounded-full border border-emerald-100 bg-white px-2 py-1 text-[9px] font-black leading-none text-emerald-700 shadow-sm"
                             style={{ left: dot.labelSide === 'right' ? '100%' : dot.labelSide === 'left' ? '0%' : '50%', top: dot.labelSide === 'bottom' ? '100%' : dot.labelSide === 'top' ? '0%' : '50%', transform: labelTransform }}
                           >
-                            {seatGuest.name}
+                            {seatOccupant.name}
                           </span>
+                          </>
                         ) : null}
                       </button>
                     );
@@ -5042,13 +5361,33 @@ function SeatingPanel({
                   </div>
 
                   <div className="rounded-[20px] border border-pink-300/10 bg-black/18 p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-pink-100/52">Sentados en esta mesa</p>
+                    <div className="mt-3 grid gap-2">
+                      {(() => {
+                        const occupants = getSeatOccupants(guests)
+                          .filter((occupant) => occupant.tableId === selected.id && occupant.seatIndex !== null && occupant.seatIndex !== undefined)
+                          .sort((a, b) => Number(a.seatIndex || 0) - Number(b.seatIndex || 0));
+                        if (!occupants.length) {
+                          return <p className="rounded-[14px] border border-pink-300/10 bg-white/[0.04] px-3 py-2 text-sm text-pink-100/60">Todavia no hay personas asignadas a sillas.</p>;
+                        }
+                        return occupants.map((occupant) => (
+                          <div key={occupant.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-pink-300/10 bg-white/[0.04] px-3 py-2">
+                            <span className="truncate text-sm font-black text-white">{occupant.name}</span>
+                            <span className="rounded-full bg-white/[0.08] px-2 py-1 text-xs font-black text-pink-100">Asiento {Number(occupant.seatIndex) + 1}</span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[20px] border border-pink-300/10 bg-black/18 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-black uppercase tracking-[0.18em] text-pink-100/52">Asignar asiento</p>
                         <p className="mt-2 text-sm leading-5 text-pink-100/66">
                           {selectedSeatIndex === null
                             ? 'Toca una silla del plano para elegirla.'
-                            : `Asiento ${selectedSeatIndex + 1}${selectedSeatGuest ? `: ${selectedSeatGuest.name}` : ''}`}
+                            : `Asiento ${selectedSeatIndex + 1}${selectedSeatOccupant ? `: ${selectedSeatOccupant.name}` : ''}`}
                         </p>
                       </div>
                       {selectedSeatIndex !== null ? (
@@ -5059,7 +5398,7 @@ function SeatingPanel({
                     {selectedSeatIndex !== null ? (
                       <div className="mt-4 grid gap-3">
                         <select
-                          value={selectedSeatGuest?.id || ''}
+                          value={selectedSeatOccupant?.kind === 'guest' ? selectedSeatOccupant.guestId : ''}
                           onChange={(event) => assignSeat(selected, selectedSeatIndex, event.target.value)}
                           className="w-full rounded-[16px] border border-pink-300/14 bg-black/22 px-4 py-3 text-sm font-black text-white outline-none"
                         >

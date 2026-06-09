@@ -36,6 +36,8 @@ export interface WorkspaceCompanion {
   food: string;
   age?: number | null;
   ageGroup: 'child' | 'adult' | 'senior';
+  tableId?: string;
+  seatIndex?: number | null;
   email?: string;
   phone?: string;
 }
