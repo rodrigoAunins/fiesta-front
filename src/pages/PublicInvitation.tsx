@@ -90,6 +90,7 @@ export default function PublicInvitation() {
     const normalizedName = rsvpForm.name.trim();
     const normalizedEmail = rsvpForm.email.trim().toLowerCase();
     const normalizedPhone = rsvpForm.phone.trim();
+    const confirmedCompanions = rsvpForm.companionsData.filter((companion) => companion.status === 'confirmed');
 
     try {
       setSubmittingRsvp(true);
@@ -102,8 +103,8 @@ export default function PublicInvitation() {
         food: rsvpForm.food,
         age: rsvpForm.age ? Number(rsvpForm.age) : null,
         ageGroup: rsvpForm.ageGroup,
-        confirmCompanions: rsvpForm.confirmCompanions,
-        companionsData: rsvpForm.confirmCompanions ? rsvpForm.companionsData : [],
+        confirmCompanions: confirmedCompanions.length > 0,
+        companionsData: confirmedCompanions,
       });
 
       setRsvpForm({
@@ -169,6 +170,19 @@ export default function PublicInvitation() {
     }));
   };
 
+  const toggleCompanionConfirmation = (id: string) => {
+    setRsvpForm((current) => {
+      const companionsData = current.companionsData.map((item) =>
+        item.id === id ? { ...item, status: item.status === 'confirmed' ? ('pending' as const) : ('confirmed' as const) } : item,
+      );
+      return {
+        ...current,
+        confirmCompanions: companionsData.some((item) => item.status === 'confirmed'),
+        companionsData,
+      };
+    });
+  };
+
   const addCompanion = () => {
     setRsvpForm((current) => ({
       ...current,
@@ -178,6 +192,7 @@ export default function PublicInvitation() {
         {
           id: `comp-${Date.now()}-${current.companionsData.length}`,
           name: '',
+          status: 'confirmed',
           gender: 'other',
           food: 'Sin restriccion',
           age: null,
@@ -245,34 +260,61 @@ export default function PublicInvitation() {
               <input value={rsvpForm.food} onChange={(event) => setRsvpForm((current) => ({ ...current, food: event.target.value }))} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none" placeholder="Preferencia de comida" />
             </div>
 
-            <label className="mt-4 flex items-center gap-3 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-700">
-              <input type="checkbox" checked={rsvpForm.confirmCompanions} onChange={(event) => setRsvpForm((current) => ({ ...current, confirmCompanions: event.target.checked }))} />
-              Confirmo tambien a mis acompanantes
-            </label>
-
-            {rsvpForm.confirmCompanions ? (
-              <div className="mt-4 grid gap-3">
-                {rsvpForm.companionsData.map((companion, index) => (
-                  <div key={companion.id} className="grid gap-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-3 md:grid-cols-2">
-                    <input value={companion.name} onChange={(event) => updateCompanion(companion.id, { name: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none" placeholder={`Acompanante ${index + 1}`} />
-                    <input value={companion.food} onChange={(event) => updateCompanion(companion.id, { food: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none" placeholder="Comida / restriccion" />
-                    <select value={companion.gender} onChange={(event) => updateCompanion(companion.id, { gender: event.target.value as WorkspaceCompanion['gender'] })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none">
-                      <option value="female">Mujer</option>
-                      <option value="male">Hombre</option>
-                      <option value="other">Otro</option>
-                    </select>
-                    <select value={companion.ageGroup} onChange={(event) => updateCompanion(companion.id, { ageGroup: event.target.value as WorkspaceCompanion['ageGroup'] })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none">
-                      <option value="child">Nino</option>
-                      <option value="adult">Adulto</option>
-                      <option value="senior">Mayor</option>
-                    </select>
-                  </div>
-                ))}
-                <button type="button" onClick={addCompanion} className="rounded-2xl border border-dashed border-slate-300 px-4 py-3 text-sm font-black text-slate-700">
+            <div className="mt-5 rounded-[22px] border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">Acompanantes</p>
+                  <p className="mt-1 text-sm text-slate-500">Confirma solo las personas que van con vos.</p>
+                </div>
+                <button type="button" onClick={addCompanion} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
                   Agregar acompanante
                 </button>
               </div>
-            ) : null}
+
+              {rsvpForm.companionsData.length ? (
+                <div className="mt-4 grid gap-3">
+                  {rsvpForm.companionsData.map((companion, index) => {
+                    const isConfirmed = companion.status === 'confirmed';
+                    return (
+                      <div key={companion.id} className={`rounded-2xl border p-3 transition ${isConfirmed ? 'border-emerald-200 bg-white' : 'border-slate-200 bg-white/70'}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-900">Acompanante {index + 1}</p>
+                            <p className="text-xs font-semibold text-slate-500">{isConfirmed ? 'Confirmado para asistir' : 'No confirmado'}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleCompanionConfirmation(companion.id)}
+                            className={`rounded-full px-4 py-2 text-xs font-black transition ${isConfirmed ? 'bg-emerald-500 text-white' : 'border border-slate-200 bg-slate-50 text-slate-600'}`}
+                          >
+                            {isConfirmed ? 'Confirmado' : 'Confirmar'}
+                          </button>
+                        </div>
+
+                        <div className={`mt-3 grid gap-2 md:grid-cols-2 ${isConfirmed ? '' : 'opacity-55'}`}>
+                          <input disabled={!isConfirmed} value={companion.name} onChange={(event) => updateCompanion(companion.id, { name: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none disabled:bg-slate-100" placeholder={`Nombre acompanante ${index + 1}`} />
+                          <input disabled={!isConfirmed} value={companion.food} onChange={(event) => updateCompanion(companion.id, { food: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none disabled:bg-slate-100" placeholder="Comida / restriccion" />
+                          <select disabled={!isConfirmed} value={companion.gender} onChange={(event) => updateCompanion(companion.id, { gender: event.target.value as WorkspaceCompanion['gender'] })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none disabled:bg-slate-100">
+                            <option value="female">Mujer</option>
+                            <option value="male">Hombre</option>
+                            <option value="other">Otro</option>
+                          </select>
+                          <select disabled={!isConfirmed} value={companion.ageGroup} onChange={(event) => updateCompanion(companion.id, { ageGroup: event.target.value as WorkspaceCompanion['ageGroup'] })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none disabled:bg-slate-100">
+                            <option value="child">Nino</option>
+                            <option value="adult">Adulto</option>
+                            <option value="senior">Mayor</option>
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center text-sm font-semibold text-slate-500">
+                  Todavia no agregaste acompanantes.
+                </div>
+              )}
+            </div>
 
             <div className="mt-5 flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setPreferencesOpen(false)} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-700">
