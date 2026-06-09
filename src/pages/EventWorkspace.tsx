@@ -40,6 +40,8 @@ type Guest = {
   companions: number;
   companionsData: GuestCompanion[];
   table: string;
+  tableId?: string;
+  seatIndex?: number | null;
   phone: string;
   email?: string;
   inviteCode: string;
@@ -945,6 +947,13 @@ function normalizeGuestAge(raw: unknown): number | null {
   return Math.round(value);
 }
 
+function normalizeSeatIndex(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 500) return null;
+  return value;
+}
+
 function normalizeGuestAgeGroup(raw: unknown): GuestAgeGroup {
   const value = String(raw || '').trim().toLowerCase();
   if (['child', 'niño', 'nino', 'menor'].includes(value)) return 'child';
@@ -1316,6 +1325,7 @@ function getRsvpSummary(guests: Guest[]) {
 function normalizeGuest(raw: Partial<Guest>, index: number): Guest {
   const name = String(raw.name || `Invitado ${index + 1}`).trim();
   const companionsData = normalizeCompanionsData(raw);
+  const seatIndex = normalizeSeatIndex(raw.seatIndex);
   return {
     id: String(raw.id || nextId('guest')),
     name,
@@ -1327,6 +1337,8 @@ function normalizeGuest(raw: Partial<Guest>, index: number): Guest {
     companions: companionsData.length,
     companionsData,
     table: String(raw.table || 'Sin mesa').trim() || 'Sin mesa',
+    tableId: String(raw.tableId || '').trim() || undefined,
+    seatIndex,
     phone: String(raw.phone || '-').trim() || '-',
     email: String(raw.email || '').trim() || undefined,
     inviteCode: String(raw.inviteCode || createInviteCode(name)).trim(),
@@ -1589,7 +1601,7 @@ function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
   }));
 
   return [...layoutTables, ...missingGuestTables].map((table) => {
-    const assignedGuests = guests.filter((guest) => guest.table === table.label);
+    const assignedGuests = guests.filter((guest) => guest.tableId === table.id || (!guest.tableId && guest.table === table.label));
     const assignedSeats = assignedGuests.reduce((acc, guest) => acc + getGuestPartySize(guest), 0);
     return {
       ...table,
@@ -1601,9 +1613,13 @@ function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
   });
 }
 
+function getSeatGuest(guests: Guest[], table: LayoutElement, seatIndex: number) {
+  return guests.find((guest) => guest.tableId === table.id && guest.seatIndex === seatIndex) || null;
+}
+
 function getSeatDots(item: LayoutElement) {
   if (!(item.type === 'roundTable' || item.type === 'squareTable' || item.type === 'rectTable' || item.type === 'vipTable') || !item.seats) {
-    return [] as Array<{ left: number; top: number }>;
+    return [] as Array<{ left: number; top: number; labelSide: 'top' | 'right' | 'bottom' | 'left' }>;
   }
 
   const count = Math.min(item.seats, 14);
@@ -1614,14 +1630,18 @@ function getSeatDots(item: LayoutElement) {
     const radius = Math.min(item.w, item.h) / 2 + 12;
     return Array.from({ length: count }).map((_, index) => {
       const angle = (Math.PI * 2 * index) / count - Math.PI / 2;
+      const labelSide = Math.abs(Math.cos(angle)) > Math.abs(Math.sin(angle))
+        ? Math.cos(angle) > 0 ? 'right' : 'left'
+        : Math.sin(angle) > 0 ? 'bottom' : 'top';
       return {
         left: centerX + Math.cos(angle) * radius,
         top: centerY + Math.sin(angle) * radius,
+        labelSide,
       };
     });
   }
 
-  const perimeter: Array<{ left: number; top: number }> = [];
+  const perimeter: Array<{ left: number; top: number; labelSide: 'top' | 'right' | 'bottom' | 'left' }> = [];
   const topCount = Math.ceil(count / 4);
   const rightCount = Math.ceil((count - topCount) / 3);
   const bottomCount = Math.ceil((count - topCount - rightCount) / 2);
@@ -1630,10 +1650,10 @@ function getSeatDots(item: LayoutElement) {
   const pushSide = (sideCount: number, position: 'top' | 'right' | 'bottom' | 'left') => {
     for (let index = 0; index < sideCount; index += 1) {
       const ratio = (index + 1) / (sideCount + 1);
-      if (position === 'top') perimeter.push({ left: ratio * item.w, top: -12 });
-      if (position === 'bottom') perimeter.push({ left: ratio * item.w, top: item.h + 12 });
-      if (position === 'left') perimeter.push({ left: -12, top: ratio * item.h });
-      if (position === 'right') perimeter.push({ left: item.w + 12, top: ratio * item.h });
+      if (position === 'top') perimeter.push({ left: ratio * item.w, top: -12, labelSide: 'top' });
+      if (position === 'bottom') perimeter.push({ left: ratio * item.w, top: item.h + 12, labelSide: 'bottom' });
+      if (position === 'left') perimeter.push({ left: -12, top: ratio * item.h, labelSide: 'left' });
+      if (position === 'right') perimeter.push({ left: item.w + 12, top: ratio * item.h, labelSide: 'right' });
     }
   };
 
@@ -2118,6 +2138,8 @@ function GuestsPanel({
       companions: 0,
       companionsData: [] as GuestCompanion[],
       table: tableOptions[0] || 'Sin mesa',
+      tableId: undefined as string | undefined,
+      seatIndex: null as number | null,
       side: 'left' as Guest['side'],
       note: '',
       reviewStatus: 'approved' as GuestReviewStatus,
@@ -2255,7 +2277,11 @@ function GuestsPanel({
   );
 
   const updateGuest = (id: string, patch: Partial<Guest>) => {
-    setGuests((prev) => prev.map((guest) => (guest.id === id ? normalizeGuest({ ...guest, ...patch }, 0) : guest)));
+    const placementPatch =
+      Object.prototype.hasOwnProperty.call(patch, 'table') && !Object.prototype.hasOwnProperty.call(patch, 'tableId')
+        ? { tableId: undefined, seatIndex: null }
+        : {};
+    setGuests((prev) => prev.map((guest) => (guest.id === id ? normalizeGuest({ ...guest, ...placementPatch, ...patch }, 0) : guest)));
   };
 
   const resizeDraftCompanions = (nextCount: number) => {
@@ -2404,6 +2430,8 @@ function GuestsPanel({
         edad: guest.age ?? '',
         grupo_edad: guest.ageGroup,
         mesa: guest.table,
+        mesa_id: guest.tableId || '',
+        asiento: guest.seatIndex !== null && guest.seatIndex !== undefined ? Number(guest.seatIndex) + 1 : '',
         comida: guest.food,
         acompanantes: guest.companions,
         acompanantes_detalle: guest.companionsData.map((item) => item.name).join(', '),
@@ -2447,6 +2475,8 @@ function GuestsPanel({
       companions: guest.companions,
       companionsData: guest.companionsData,
       table: guest.table,
+      tableId: guest.tableId,
+      seatIndex: guest.seatIndex ?? null,
       side: guest.side,
       note: guest.note || '',
       reviewStatus: guest.reviewStatus,
@@ -2474,6 +2504,8 @@ function GuestsPanel({
         companionsData: draft.companionsData,
         companions: draft.companionsData.length,
         table: draft.table.trim() || tableOptions[0] || 'Sin mesa',
+        tableId: draft.tableId,
+        seatIndex: draft.seatIndex,
         side: draft.side,
         note: draft.note.trim() || undefined,
         reviewStatus: draft.reviewStatus,
@@ -2494,6 +2526,8 @@ function GuestsPanel({
         status: draft.status,
         gender: draft.gender,
         table: draft.table.trim() || tableOptions[0] || 'Sin mesa',
+        tableId: draft.tableId,
+        seatIndex: draft.seatIndex,
         food: draft.food.trim() || 'Sin restriccion',
         age: normalizeGuestAge(draft.age),
         ageGroup: draft.ageGroup,
@@ -2654,7 +2688,7 @@ function GuestsPanel({
   const applyBulkTable = () => {
     if (!bulkTable || !selectedGuestIds.length) return;
     const selectedIds = new Set(selectedGuestIds);
-    setGuests((prev) => prev.map((guest) => (selectedIds.has(guest.id) ? { ...guest, table: bulkTable } : guest)));
+    setGuests((prev) => prev.map((guest) => (selectedIds.has(guest.id) ? { ...guest, table: bulkTable, tableId: undefined, seatIndex: null } : guest)));
     toast('Mesa asignada a la selección');
     setBulkTable('');
   };
@@ -3109,7 +3143,7 @@ function GuestsPanel({
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <label className="block">
                       <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Mesa / fila</span>
-                      <select value={draft.table} onChange={(event) => setDraft((current) => ({ ...current, table: event.target.value }))} className="w-full rounded-[16px] border border-[#e4d7df] bg-[#fffafb] px-4 py-3 text-sm font-black text-slate-700 outline-none">
+                      <select value={draft.table} onChange={(event) => setDraft((current) => ({ ...current, table: event.target.value, tableId: undefined, seatIndex: null }))} className="w-full rounded-[16px] border border-[#e4d7df] bg-[#fffafb] px-4 py-3 text-sm font-black text-slate-700 outline-none">
                         <option value="Sin mesa">Sin mesa</option>
                         {tableOptions.map((option) => {
                           const summary = tableSummaries.find((item) => item.label === option);
@@ -4462,12 +4496,15 @@ function SeatingPanel({
   layout,
   guests,
   setLayout,
+  setGuests,
 }: {
   layout: LayoutElement[];
   guests: Guest[];
   setLayout: Dispatch<SetStateAction<LayoutElement[]>>;
+  setGuests: Dispatch<SetStateAction<Guest[]>>;
 }) {
   const [selectedId, setSelectedId] = useState<string>(layout[0]?.id || '');
+  const [selectedSeatIndex, setSelectedSeatIndex] = useState<number | null>(null);
   const [boardZoom, setBoardZoom] = useState(1.2);
   const [boardTheme, setBoardTheme] = useState<(typeof SEATING_BOARD_THEMES)[number]['value']>('classic');
   const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -4489,12 +4526,40 @@ function SeatingPanel({
   useEffect(() => {
     if (!selectedId || !layout.some((item) => item.id === selectedId)) {
       setSelectedId(layout[0]?.id || '');
+      setSelectedSeatIndex(null);
     }
   }, [layout, selectedId]);
 
   const updateSelected = (patch: Partial<LayoutElement>) => {
     if (!selected) return;
     setLayout((prev) => prev.map((item) => (item.id === selected.id ? { ...item, ...patch } : item)));
+  };
+
+  const assignSeat = (table: LayoutElement, seatIndex: number, guestId: string) => {
+    setGuests((prev) => {
+      const next = prev.map((guest) => {
+        const isCurrentSeat = guest.tableId === table.id && guest.seatIndex === seatIndex;
+        if (!guestId && isCurrentSeat) {
+          return { ...guest, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
+        }
+
+        if (guest.id === guestId) {
+          return { ...guest, tableId: table.id, seatIndex, table: table.label };
+        }
+
+        if (guestId && isCurrentSeat) {
+          return { ...guest, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
+        }
+
+        if (guestId && guest.id !== guestId && guest.tableId === table.id && guest.seatIndex === seatIndex) {
+          return { ...guest, tableId: undefined, seatIndex: null, table: 'Sin mesa' };
+        }
+
+        return guest;
+      });
+      return next;
+    });
+    toast(guestId ? 'Invitado asignado al asiento' : 'Asiento liberado', guestId ? 'success' : 'info');
   };
 
   const addElement = (type: LayoutElementType) => {
@@ -4666,8 +4731,15 @@ function SeatingPanel({
 
     setLayout(nextLayout);
     setSelectedId(nextLayout[0]?.id || '');
+    setSelectedSeatIndex(null);
     toast('Preset de plano aplicado');
   };
+
+  const selectedSeatGuest =
+    selected && selectedSeatIndex !== null ? getSeatGuest(guests, selected, selectedSeatIndex) : null;
+  const assignableGuests = guests
+    .filter((guest) => guest.reviewStatus !== 'rejected')
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <section className="mx-auto max-w-7xl">
@@ -4794,13 +4866,48 @@ function SeatingPanel({
                         borderColor: active ? 'rgba(244,114,182,.8)' : 'rgba(255,255,255,.3)',
                       }}
                     >
-                  {seatDots.map((dot, index) => (
-                    <span
-                      key={`${item.id}-${index}`}
-                      className="absolute h-4 w-4 rounded-full border border-slate-200 bg-white shadow-sm"
-                      style={{ left: dot.left, top: dot.top, transform: 'translate(-50%, -50%)' }}
-                    />
-                  ))}
+                  {seatDots.map((dot, index) => {
+                    const seatGuest = getSeatGuest(guests, item, index);
+                    const isSeatSelected = active && selectedSeatIndex === index;
+                    const labelTransform =
+                      dot.labelSide === 'top'
+                        ? 'translate(-50%, calc(-100% - 9px))'
+                        : dot.labelSide === 'bottom'
+                          ? 'translate(-50%, 9px)'
+                          : dot.labelSide === 'left'
+                            ? 'translate(calc(-100% - 9px), -50%)'
+                            : 'translate(9px, -50%)';
+
+                    return (
+                      <button
+                        key={`${item.id}-${index}`}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.stopPropagation();
+                          setSelectedId(item.id);
+                          setSelectedSeatIndex(index);
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedId(item.id);
+                          setSelectedSeatIndex(index);
+                        }}
+                        className={`absolute h-5 w-5 rounded-full border shadow-sm transition ${seatGuest ? 'border-emerald-200 bg-emerald-500' : 'border-slate-200 bg-white'} ${isSeatSelected ? 'ring-4 ring-amber-300/70' : ''}`}
+                        style={{ left: dot.left, top: dot.top, transform: 'translate(-50%, -50%)' }}
+                        title={seatGuest ? `${seatGuest.name} - asiento ${index + 1}` : `Asiento ${index + 1}`}
+                        aria-label={seatGuest ? `${seatGuest.name} en asiento ${index + 1}` : `Asignar asiento ${index + 1}`}
+                      >
+                        {seatGuest ? (
+                          <span
+                            className="pointer-events-none absolute z-20 max-w-[96px] truncate rounded-full border border-emerald-100 bg-white px-2 py-1 text-[9px] font-black leading-none text-emerald-700 shadow-sm"
+                            style={{ left: dot.labelSide === 'right' ? '100%' : dot.labelSide === 'left' ? '0%' : '50%', top: dot.labelSide === 'bottom' ? '100%' : dot.labelSide === 'top' ? '0%' : '50%', transform: labelTransform }}
+                          >
+                            {seatGuest.name}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
 
                   <div className="pointer-events-none px-2">
                     <i className={`fas ${cfg.icon} text-sm`} />
@@ -4923,15 +5030,65 @@ function SeatingPanel({
               ) : null}
 
               {isTableLayoutElement(selected) ? (
-                <div className="rounded-[20px] border border-pink-300/10 bg-black/18 p-4 text-sm text-pink-100/70">
-                  {(() => {
-                    const summary = tableSummaries.find((item) => item.label === selected.label);
-                    if (!summary) return 'Todavia no hay invitados asignados a esta mesa.';
-                    return summary.overflow
-                      ? `Mesa excedida: ${summary.assignedSeats}/${summary.seats} lugares ocupados contando acompanantes.`
-                      : `Ocupacion actual: ${summary.assignedSeats}/${summary.seats || 'sin limite'} contando acompanantes.`;
-                  })()}
-                </div>
+                <>
+                  <div className="rounded-[20px] border border-pink-300/10 bg-black/18 p-4 text-sm text-pink-100/70">
+                    {(() => {
+                      const summary = tableSummaries.find((item) => item.id === selected.id);
+                      if (!summary) return 'Todavia no hay invitados asignados a esta mesa.';
+                      return summary.overflow
+                        ? `Mesa excedida: ${summary.assignedSeats}/${summary.seats} lugares ocupados contando acompanantes.`
+                        : `Ocupacion actual: ${summary.assignedSeats}/${summary.seats || 'sin limite'} contando acompanantes.`;
+                    })()}
+                  </div>
+
+                  <div className="rounded-[20px] border border-pink-300/10 bg-black/18 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-pink-100/52">Asignar asiento</p>
+                        <p className="mt-2 text-sm leading-5 text-pink-100/66">
+                          {selectedSeatIndex === null
+                            ? 'Toca una silla del plano para elegirla.'
+                            : `Asiento ${selectedSeatIndex + 1}${selectedSeatGuest ? `: ${selectedSeatGuest.name}` : ''}`}
+                        </p>
+                      </div>
+                      {selectedSeatIndex !== null ? (
+                        <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-slate-950">{selectedSeatIndex + 1}</span>
+                      ) : null}
+                    </div>
+
+                    {selectedSeatIndex !== null ? (
+                      <div className="mt-4 grid gap-3">
+                        <select
+                          value={selectedSeatGuest?.id || ''}
+                          onChange={(event) => assignSeat(selected, selectedSeatIndex, event.target.value)}
+                          className="w-full rounded-[16px] border border-pink-300/14 bg-black/22 px-4 py-3 text-sm font-black text-white outline-none"
+                        >
+                          <option value="">Sin persona asignada</option>
+                          {assignableGuests.map((guest) => {
+                            const assignedLabel =
+                              guest.tableId && guest.seatIndex !== null && guest.seatIndex !== undefined
+                                ? ` - ${guest.table} / asiento ${Number(guest.seatIndex) + 1}`
+                                : guest.table && guest.table !== 'Sin mesa'
+                                  ? ` - ${guest.table}`
+                                  : '';
+                            return (
+                              <option key={guest.id} value={guest.id}>
+                                {guest.name}{assignedLabel}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => assignSeat(selected, selectedSeatIndex, '')}
+                          className="rounded-[16px] border border-pink-300/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-pink-50"
+                        >
+                          Liberar asiento
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </>
               ) : null}
 
               <button type="button" onClick={removeSelected} className="w-full rounded-[16px] border border-rose-300/24 bg-rose-500/10 px-4 py-3 text-sm font-black text-rose-100">
@@ -6009,7 +6166,7 @@ export default function EventWorkspace() {
               {active === 'overview' ? <OverviewPanel eventInfo={eventInfo} guests={guests} itinerary={itinerary} providers={providers} onJump={jumpTo} /> : null}
               {active === 'guests' ? <GuestsPanel workspaceId={workspaceId} eventInfo={eventInfo} layout={layout} guests={guests} setGuests={setGuests} onJump={jumpTo} /> : null}
               {active === 'website' ? <WebsitePanel workspaceId={workspaceId} layout={layout} onJump={jumpTo} /> : null}
-              {active === 'seating' ? <SeatingPanel layout={layout} guests={guests} setLayout={setLayout} /> : null}
+              {active === 'seating' ? <SeatingPanel layout={layout} guests={guests} setLayout={setLayout} setGuests={setGuests} /> : null}
               {active === 'itinerary' ? <ItineraryPanel canEdit={canEditItinerary} itinerary={itinerary} setItinerary={setItinerary} /> : null}
               {active === 'checkin' ? <CheckinPanel guests={guests} setGuests={setGuests} scannerPath={scannerPath} /> : null}
               {active === 'providers' ? <ProvidersPanel providers={providers} services={services} /> : null}

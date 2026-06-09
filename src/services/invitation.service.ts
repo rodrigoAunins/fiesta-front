@@ -14,6 +14,8 @@ export interface WorkspaceGuest {
   companions: number;
   companionsData: WorkspaceCompanion[];
   table: string;
+  tableId?: string;
+  seatIndex?: number | null;
   phone: string;
   email?: string;
   inviteCode: string;
