@@ -74,8 +74,10 @@ type SeatOccupant = {
   companionId?: string;
   name: string;
   tableId?: string;
+  tableLabel?: string;
   seatIndex?: number | null;
   kind: 'guest' | 'companion';
+  virtualSeat?: boolean;
 };
 
 type ChecklistItem = {
@@ -1603,6 +1605,7 @@ function getGuestSeatOccupants(guest: Guest): SeatOccupant[] {
       guestId: guest.id,
       name: guest.name,
       tableId: guest.tableId,
+      tableLabel: guest.table && guest.table !== 'Sin mesa' ? guest.table : undefined,
       seatIndex: guest.seatIndex,
       kind: 'guest',
     },
@@ -1612,6 +1615,7 @@ function getGuestSeatOccupants(guest: Guest): SeatOccupant[] {
       companionId: companion.id,
       name: companion.name,
       tableId: companion.tableId,
+      tableLabel: companion.tableId ? undefined : guest.table && guest.table !== 'Sin mesa' ? guest.table : undefined,
       seatIndex: companion.seatIndex,
       kind: 'companion' as const,
     })),
@@ -1620,6 +1624,43 @@ function getGuestSeatOccupants(guest: Guest): SeatOccupant[] {
 
 function getSeatOccupants(guests: Guest[]): SeatOccupant[] {
   return guests.flatMap(getGuestSeatOccupants);
+}
+
+function getVisualSeatOccupants(layout: LayoutElement[], guests: Guest[]): SeatOccupant[] {
+  const allOccupants = getSeatOccupants(guests);
+  const visualOccupants: SeatOccupant[] = [];
+
+  layout.filter(isTableLayoutElement).forEach((table) => {
+    const seatCount = Math.max(0, Number(table.seats || 0));
+    const usedSeats = new Set<number>();
+    const exactOccupants = allOccupants.filter(
+      (occupant) => occupant.tableId === table.id && occupant.seatIndex !== null && occupant.seatIndex !== undefined,
+    );
+
+    exactOccupants.forEach((occupant) => {
+      const seatIndex = Number(occupant.seatIndex);
+      usedSeats.add(seatIndex);
+      visualOccupants.push(occupant);
+    });
+
+    const legacyOccupants = allOccupants.filter(
+      (occupant) =>
+        !(occupant.tableId && occupant.seatIndex !== null && occupant.seatIndex !== undefined) &&
+        occupant.tableLabel === table.label,
+    );
+
+    legacyOccupants.forEach((occupant) => {
+      const nextSeat = Array.from({ length: seatCount }).findIndex((_, index) => !usedSeats.has(index));
+      if (nextSeat < 0) {
+        visualOccupants.push({ ...occupant, tableId: table.id, seatIndex: null, virtualSeat: true });
+        return;
+      }
+      usedSeats.add(nextSeat);
+      visualOccupants.push({ ...occupant, tableId: table.id, seatIndex: nextSeat, virtualSeat: true });
+    });
+  });
+
+  return visualOccupants;
 }
 
 function getSeatLocationLabel(layout: LayoutElement[], tableId?: string, seatIndex?: number | null, fallbackTable?: string) {
@@ -1652,15 +1693,16 @@ function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
 
   return [...layoutTables, ...missingGuestTables].map((table) => {
     const assignedGuests = guests.filter((guest) => guest.tableId === table.id || (!guest.tableId && guest.table === table.label));
-    const visualSeats = occupants.filter((occupant) => occupant.tableId === table.id && occupant.seatIndex !== null && occupant.seatIndex !== undefined).length;
-    const legacySeats = assignedGuests
-      .filter((guest) => !guest.tableId)
-      .reduce((acc, guest) => acc + getGuestPartySize(guest), 0);
-    const assignedSeats = visualSeats + legacySeats;
+    const tableOccupants = occupants.filter(
+      (occupant) =>
+        occupant.tableId === table.id ||
+        (!occupant.tableId && occupant.tableLabel === table.label),
+    );
+    const assignedSeats = tableOccupants.length;
     return {
       ...table,
       assignedGuests,
-      occupants: occupants.filter((occupant) => occupant.tableId === table.id),
+      occupants: tableOccupants,
       assignedSeats,
       freeSeats: Math.max(0, table.seats - assignedSeats),
       overflow: table.seats > 0 ? assignedSeats > table.seats : false,
@@ -1669,7 +1711,7 @@ function getTableSummaries(layout: LayoutElement[], guests: Guest[]) {
 }
 
 function getSeatOccupant(guests: Guest[], table: LayoutElement, seatIndex: number) {
-  return getSeatOccupants(guests).find((occupant) => occupant.tableId === table.id && occupant.seatIndex === seatIndex) || null;
+  return getVisualSeatOccupants([table], guests).find((occupant) => occupant.tableId === table.id && occupant.seatIndex === seatIndex) || null;
 }
 
 function getSeatDots(item: LayoutElement) {
@@ -5364,7 +5406,7 @@ function SeatingPanel({
                     <p className="text-xs font-black uppercase tracking-[0.18em] text-pink-100/52">Sentados en esta mesa</p>
                     <div className="mt-3 grid gap-2">
                       {(() => {
-                        const occupants = getSeatOccupants(guests)
+                        const occupants = getVisualSeatOccupants([selected], guests)
                           .filter((occupant) => occupant.tableId === selected.id && occupant.seatIndex !== null && occupant.seatIndex !== undefined)
                           .sort((a, b) => Number(a.seatIndex || 0) - Number(b.seatIndex || 0));
                         if (!occupants.length) {
@@ -5373,7 +5415,7 @@ function SeatingPanel({
                         return occupants.map((occupant) => (
                           <div key={occupant.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-pink-300/10 bg-white/[0.04] px-3 py-2">
                             <span className="truncate text-sm font-black text-white">{occupant.name}</span>
-                            <span className="rounded-full bg-white/[0.08] px-2 py-1 text-xs font-black text-pink-100">Asiento {Number(occupant.seatIndex) + 1}</span>
+                            <span className="rounded-full bg-white/[0.08] px-2 py-1 text-xs font-black text-pink-100">Asiento {Number(occupant.seatIndex) + 1}{occupant.virtualSeat ? ' visual' : ''}</span>
                           </div>
                         ));
                       })()}
